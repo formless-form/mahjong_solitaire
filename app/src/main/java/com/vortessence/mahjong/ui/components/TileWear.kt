@@ -13,8 +13,8 @@ import kotlin.random.Random
 /**
  * The look of well-used tiles: a few face-wear textures (handled grime gathered towards the edges
  * and corners, fine hairline scratches that catch the light, the odd tiny ding, a faint haze of
- * fingerprints), plus per-tile ivory ageing and a fraction-off-square placement. Everything is
- * chosen from the tile's id, so each tile always looks the same and no two neighbours match.
+ * fingerprints), plus per-tile ivory ageing. Everything is chosen from the tile's id, so each
+ * tile always looks the same and no two neighbours match.
  *
  * The textures are generated once on a background thread; tiles draw clean until they are ready.
  */
@@ -83,16 +83,6 @@ object TileWear {
      */
     @Suppress("UNUSED_PARAMETER")
     fun ageing(id: Int): Float = 0.065f
-
-    /*
-     * Small placement imperfection: offset as fractions of the tile width, rotation in degrees.
-     * Three plain functions rather than one returning a triple, as every tile asks every frame.
-     */
-    fun jitterX(id: Int): Float = ((mix(id * 17 + 3) % 1000) / 1000f - 0.5f) * 0.016f
-
-    fun jitterY(id: Int): Float = (((mix(id * 17 + 3) / 1000) % 1000) / 1000f - 0.5f) * 0.016f
-
-    fun jitterTurn(id: Int): Float = (((mix(id * 17 + 3) / 1000000) % 1000) / 1000f - 0.5f) * 1.1f
 
     /** How much the glaze's surface wobbles (0..1), which bends the lamp's reflection in it. */
     fun wobble(look: Int): Float = (mix(look * 53 + 11) % 1000) / 1000f

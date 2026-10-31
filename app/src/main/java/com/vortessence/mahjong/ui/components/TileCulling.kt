@@ -32,11 +32,10 @@ internal object TileCulling {
     // Raster cells per grid unit (a tile is 2 units wide)
     private const val CELLS = 16
 
-    // A tile sits up to about 0.025 units off square (TileWear.jitter: 0.016 nudged, and turned
-    // by up to 0.55 degrees). The covering tiles are taken that much smaller, the one beneath that
-    // much larger. Seams between neighbours stay covered: each tile's side walls reach 0.06 units
-    // under its right-hand neighbour and 0.35 under the one below, more than two tiles' jitter.
-    private const val JITTER = 0.025f
+    // A margin for safety: tiles are drawn a hair inside their places (the gap between neighbours,
+    // about 0.01 units). The covering tiles are taken this much smaller, the one beneath this much
+    // larger, so a sliver of a lower tile showing through a gap is never left out.
+    private const val MARGIN = 0.025f
 
     /** The standing tiles that are at least partly visible, in draw order. */
     fun visibleInDrawOrder(tiles: List<BoardTile>): List<BoardTile> {
@@ -66,7 +65,7 @@ internal object TileCulling {
 
         // The last tile (in draw order) surely solid over each cell's centre
         val top = IntArray(cols * rows) { -1 }
-        val inset = JITTER
+        val inset = MARGIN
         val r = max(corner - inset, 0f)
         standing.forEachIndexed { i, t ->
             // The body is the face swept back to its full depth: three steps along the sweep,
@@ -85,7 +84,7 @@ internal object TileCulling {
         // A tile is seen if any cell of its outline (allowing for its own slight offset) has
         // nothing drawn after it surely covering that cell
         val visible = ArrayList<BoardTile>(standing.size)
-        val grow = JITTER
+        val grow = MARGIN
         standing.forEachIndexed { i, t ->
             val x0 = left(t) - grow
             val y0 = top(t) - grow

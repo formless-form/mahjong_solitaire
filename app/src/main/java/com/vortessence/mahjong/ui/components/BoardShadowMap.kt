@@ -19,7 +19,7 @@ import kotlin.math.sin
  *
  * - **The height map:** how tall the stack stands at each point, in layers (31 per layer, up to
  *   8), at the flat table's full resolution. Each tile is drawn into it exactly as TileRenderer
- *   draws it: its own slight nudge and turn, its rounded corners, and its side walls swept below
+ *   draws it: square on the grid, its rounded corners, and its side walls swept below
  *   and to the right. So the fire's long shadows, traced through it per pixel every frame, follow
  *   each tile's curved edges; they stop at a taller stack, fall across lower ones, soften as they
  *   reach away (the fire is broad) and sway with the flames.
@@ -108,8 +108,8 @@ class BoardShadowMap private constructor(
         }
 
         /**
-         * Where the standing tiles lie, faces and walls, in map pixels: wide enough for each tile's
-         * nudge and turn and the map's smoothing, so nothing of theirs lies outside it.
+         * Where the standing tiles lie, faces and walls, in map pixels: wide enough for the map's
+         * smoothing, so nothing of theirs lies outside it.
          */
         private fun bounds(standing: List<BoardTile>, transform: BoardTransform): FloatArray {
             if (standing.isEmpty()) return floatArrayOf(1f, 1f, 0f, 0f)
@@ -143,20 +143,13 @@ class BoardShadowMap private constructor(
             for (tile in standing) {
                 val x = transform.tilePixelX(tile.x, tile.z)
                 val y = transform.tilePixelY(tile.y, tile.z)
-                val jx = TileWear.jitterX(tile.id)
-                val jy = TileWear.jitterY(tile.id)
-                val rotation = TileWear.jitterTurn(tile.id)
                 paint.alpha = ((tile.z + 1) * PER_LAYER).coerceAtMost(255)
-                canvas.save()
-                canvas.translate(jx * tw, jy * tw)
-                canvas.rotate(rotation, x + tw / 2f, y + th / 2f)
                 // The face, and the side walls swept out to their full depth
                 for (k in 0..3) {
                     val dx = depthX * k / 3f
                     val dy = depthY * k / 3f
                     canvas.drawRoundRect(x + dx, y + dy, x + dx + tw, y + dy + th, corner, corner, paint)
                 }
-                canvas.restore()
             }
             return BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
                 filterMode = BitmapShader.FILTER_MODE_LINEAR

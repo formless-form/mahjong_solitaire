@@ -388,6 +388,10 @@ private fun BoardContent(
     // with the old map shown meanwhile. When the board scales or moves, the map is placed under
     // it as it is now, so the shading keeps up every frame without being rebuilt.
     val tracedShadows = firelit
+    // Where neighbours on a layer stand against each other's sides, which are shaded there
+    val seams = remember(gameState.tiles) { seams(gameState.tiles) }
+    // The highest layer still standing, from which lower layers are shaded darker
+    val topLayer = remember(gameState.tiles) { gameState.tiles.filter { !it.isRemoved }.maxOfOrNull { it.z } ?: 0 }
     val shadowMap by produceState<BoardShadowMap?>(null, gameState.tiles, canvasW, canvasH) {
         val layout = currentTransform
         value = if (value == null) {
@@ -611,6 +615,10 @@ private fun BoardContent(
                         currentTransform.tileWidth, canvasW, canvasH, flame,
                     ),
                     hintStrength = hintStrength,
+                    layerShade = ((topLayer - tile.z) * LAYER_SHADE).coerceAtMost(LAYER_SHADE_MAX),
+                    seams = seams[tile.id],
+                    rightAway = sideAway(px + currentTransform.tileWidth, py + currentTransform.tileHeight / 2f, canvasW, canvasH, flame, 1f, 0f),
+                    belowAway = sideAway(px + currentTransform.tileWidth / 2f, py + currentTransform.tileHeight, canvasW, canvasH, flame, 0f, -1f),
                 )
             }
 
@@ -754,6 +762,91 @@ private fun tileGlare(cx: Float, cy: Float, w: Float, h: Float, flame: FlameLigh
     val v = (h / 2f - cy) / h
     return TableSurfaceRenderer.flameGlare(u, v, flame, TableSurfaceRenderer.lampStretch(w, h))
 }
+
+/**
+ * For each standing tile, the stretches of its right and lower sides that stand against a
+ * standing neighbour on its layer: (side, from, to) triples for TileRenderer, from and to along the
+ * side from 0 to 1. A neighbour half a row off shares only part of a side; a matched-away one
+ * shares none. (Left and upper sides aren't seen: the camera looks down at the right and lower.)
+ */
+private fun seams(tiles: List<BoardTile>): Map<Int, FloatArray> {
+    val out = HashMap<Int, FloatArray>()
+    for ((_, layer) in tiles.filter { !it.isRemoved }.groupBy { it.z }) {
+        for (a in layer) {
+            val right = ArrayList<ClosedFloatingPointRange<Float>>()
+            val below = ArrayList<ClosedFloatingPointRange<Float>>()
+            for (b in layer) {
+                if (b === a) continue
+                val dx = b.x - a.x
+                val dy = b.y - a.y
+                if (abs(dx - 2f) < 0.15f && abs(dy) < 2f) right += max(0f, dy) / 2f..min(2f, dy + 2f) / 2f
+                else if (abs(dy - 2f) < 0.15f && abs(dx) < 2f) below += max(0f, dx) / 2f..min(2f, dx + 2f) / 2f
+            }
+            val spans = ArrayList<Float>()
+            for ((side, stretches) in listOf(TileRenderer.SEAM_RIGHT to right, TileRenderer.SEAM_BOTTOM to below)) {
+                // Stretches that meet (two neighbours half a row off) run on as one, so the shade
+                // fades only where the side truly opens
+                for (run in merged(stretches)) {
+                    spans += side.toFloat()
+                    spans += run.start
+                    spans += run.endInclusive
+                }
+            }
+            if (spans.isNotEmpty()) out[a.id] = spans.toFloatArray()
+        }
+    }
+    return out
+}
+
+private fun merged(stretches: List<ClosedFloatingPointRange<Float>>): List<ClosedFloatingPointRange<Float>> {
+    val runs = ArrayList<ClosedFloatingPointRange<Float>>()
+    for (s in stretches.sortedBy { it.start }) {
+        val last = runs.lastOrNull()
+        if (last != null && s.start <= last.endInclusive + 0.01f) runs[runs.size - 1] = last.start..max(last.endInclusive, s.endInclusive)
+        else runs += s
+    }
+    return runs
+}
+
+// How much darker each layer below the top is drawn, and the most any is, so layers read apart
+// by tone without the lowest going murky
+private const val LAYER_SHADE = 0.05f
+private const val LAYER_SHADE_MAX = 0.21f
+
+/**
+ * How much darker a tile's side is for facing away from the light reaching it: the side at flat
+ * table pixel ([sx], [sy]) faces direction ([nu], [nv]) across the table (u right, v up the
+ * table). The light is the lamp's and the fire's, each weighed by how brightly it reaches there
+ * (as the shaders light the table). A side facing a light keeps its brightness, one it skims is a
+ * little darker, one facing away clearly so, up to [SIDE_AWAY].
+ */
+private fun sideAway(sx: Float, sy: Float, w: Float, h: Float, flame: FlameLight, nu: Float, nv: Float): Float {
+    val u = (sx - w / 2f) / h
+    val v = (h / 2f - sy) / h
+    val stretch = TableSurfaceRenderer.lampStretch(w, h)
+    fun facing(lu: Float, lv: Float, lh: Float): Float {
+        val du = lu - u
+        val dv = lv - v
+        val length = sqrt(du * du + dv * dv + lh * lh)
+        return (du * nu + dv * nv) / length
+    }
+    val lampWeight = flame.lamp * TableSurfaceRenderer.lampLight(u, v, stretch)
+    val lampFacing = facing(LAMP_U * stretch, LAMP_V, LAMP_HEIGHT)
+    var weight = lampWeight
+    var facing = lampWeight * lampFacing
+    if (flame.power > 0f) {
+        val du = u - flame.u
+        val dv = v - flame.v
+        val fireWeight = flame.power / (1f + (du * du + dv * dv) / flame.reach) * 0.6f
+        weight += fireWeight
+        facing += fireWeight * facing(flame.u, flame.v, flame.height)
+    }
+    if (weight <= 0f) return 0f
+    return SIDE_AWAY * (0.5f - 1.5f * facing / weight).coerceIn(0f, 1f)
+}
+
+// The darkest a side facing away from the light is drawn
+private const val SIDE_AWAY = 0.35f
 
 private const val SMASH_MILLIS = 840
 

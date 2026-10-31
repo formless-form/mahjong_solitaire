@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import java.util.concurrent.Executors
 import kotlin.math.ceil
+import kotlin.math.max
 import android.graphics.Paint
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -17,6 +18,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -73,30 +77,180 @@ object TileRenderer {
         // Drawn shape by shape, never stamped from the atlas: for tiles shown much larger than
         // the board's (the matched pair in flight), which the atlas's images would soften
         live: Boolean = false,
+        // How much darker this tile is drawn for lying below the top layer (0 on top): layers
+        // read apart by their tone
+        layerShade: Float = 0f,
+        // The stretches of this tile's right and lower sides that stand against a neighbour on its
+        // layer, as (side, from, to) triples, from and to along the side from 0 to 1
+        // (MahjongBoard.seams)
+        seams: FloatArray? = null,
+        // How much darker the right and lower sides are for facing away from the light reaching
+        // this tile (MahjongBoard.sidesAway), 0 when they face it
+        rightAway: Float = 0f,
+        belowAway: Float = 0f,
     ) {
         if (boardTile.isRemoved) return
-        if (PerfSwitches.isOff("jitter")) {
-            drawTileBody(
-                scope, boardTile, x, y, width, height, isSelected, isHinted, isBlockedHighlight,
-                isTutorialHighlight, highlightFreeTiles, glare, shadows, hintStrength, live,
-            )
-            return
-        }
-        // Real tiles never sit perfectly square: a fraction of a degree and a pixel or two off
-        val id = boardTile.id
-        scope.withTransform(
-            transformBlock = {
-                translate(TileWear.jitterX(id) * width, TileWear.jitterY(id) * width)
-                rotate(TileWear.jitterTurn(id), Offset(x + width / 2f, y + height / 2f))
-            },
-            drawBlock = {
-                drawTileBody(
-                    scope, boardTile, x, y, width, height, isSelected, isHinted, isBlockedHighlight,
-                    isTutorialHighlight, highlightFreeTiles, glare, shadows, hintStrength, live,
-                )
-            },
+        // Square on the grid, a hair inside its place, so neighbours show a fine line between
+        // them (about a pixel) rather than running together
+        val inset = max(TILE_GAP_MIN, width * TILE_GAP) / 2f
+        val ix = x + inset
+        val iy = y + inset
+        val iw = width - 2f * inset
+        val ih = height - 2f * inset
+        drawTileBody(
+            scope, boardTile, ix, iy, iw, ih, isSelected, isHinted, isBlockedHighlight,
+            isTutorialHighlight, highlightFreeTiles, glare, shadows, hintStrength, live,
         )
+        if (rightAway > 0f || belowAway > 0f) drawSidesAway(scope, rightAway, belowAway, ix, iy, iw, ih)
+        if (seams != null) drawSeams(scope, seams, ix, iy, iw, ih)
+        // Lower layers a shade darker; a highlighted or selected tile keeps its colour true
+        val highlighted = isSelected || isHinted || isBlockedHighlight || isTutorialHighlight
+        if (layerShade > 0f && !highlighted) {
+            scope.drawRoundRect(
+                color = Color.Black.copy(alpha = layerShade),
+                topLeft = Offset(ix, iy),
+                size = Size(iw, ih),
+                cornerRadius = CornerRadius(iw * 0.085f),
+            )
+        }
     }
+
+    // The gap between neighbouring tiles: a share of the tile's width, at least a pixel
+    private const val TILE_GAP = 0.009f
+    private const val TILE_GAP_MIN = 1f
+
+    /*
+     * A tile's sides (its right and lower walls, the ones the camera sees) are in shadow where a
+     * neighbour stands against them: light can't reach down the crack, and only a sliver of the
+     * wall shows between the two. Only along the stretch the neighbour shares; a side open to
+     * the table stays lit. The face is untouched.
+     */
+    private fun drawSeams(
+        scope: DrawScope, seams: FloatArray,
+        ix: Float, iy: Float, iw: Float, ih: Float,
+    ) {
+        val shade = Color.Black.copy(alpha = SIDE_SHADOW)
+        val depthX = iw * BoardTransform.LAYER_SHIFT_FACTOR_X
+        val depthY = ih * BoardTransform.LAYER_SHIFT_FACTOR_Y
+        // Shaded within the sides' own outline only (their rounded corners included), never on
+        // the face. Each side's stretch and the corner below and to the right are separate pieces
+        // that never overlap, so nowhere is shaded twice; where a neighbour's stretch ends partway
+        // along a side, the shade fades out over a corner's length rather than stopping dead. The
+        // rounded corner turns from facing right to facing down, and its shade turns with it: the
+        // right side's where it faces right, the lower side's where it faces down
+        val r = iw * 0.085f
+        scope.withTransform({ translate(ix, iy) }) {
+            clipPath(sidesOutline(iw, ih, depthX, depthY)) {
+                var rightToCorner = false
+                var belowToCorner = false
+                var i = 0
+                while (i + 2 < seams.size) {
+                    val side = seams[i].toInt()
+                    val from = seams[i + 1]
+                    val to = seams[i + 2]
+                    i += 3
+                    if (to >= 1f) {
+                        if (side == SEAM_RIGHT) rightToCorner = true else belowToCorner = true
+                    }
+                    if (side == SEAM_RIGHT) {
+                        val start = from * ih
+                        val end = if (to >= 1f) ih - r else to * ih
+                        if (end <= start) continue
+                        drawRect(
+                            fadedEnds(shade, start, end, r, from > 0f, to < 1f, vertical = true),
+                            Offset(iw - r, start), Size(r + depthX, end - start),
+                        )
+                    } else {
+                        val start = from * iw
+                        val end = if (to >= 1f) iw - r else to * iw
+                        if (end <= start) continue
+                        drawRect(
+                            fadedEnds(shade, start, end, r, from > 0f, to < 1f, vertical = false),
+                            Offset(start, ih - r), Size(end - start, r + depthY),
+                        )
+                    }
+                }
+                if (rightToCorner || belowToCorner) {
+                    val clear = shade.copy(alpha = 0f)
+                    val facingRight = if (rightToCorner) shade else clear
+                    val facingDown = if (belowToCorner) shade else clear
+                    drawRect(
+                        Brush.sweepGradient(
+                            0f to facingRight,
+                            0.25f to facingDown,
+                            1f to facingRight,
+                            center = Offset(iw - r, ih - r),
+                        ),
+                        Offset(iw - r, ih - r), Size(r + depthX, r + depthY),
+                    )
+                }
+            }
+        }
+    }
+
+    /*
+     * The sides facing away from the light are darker: the right side by [right], the lower by
+     * [below], and the rounded corner between turning from one to the other as it turns from
+     * facing right to facing down. In the sides' own outline only, as the seams' shadow.
+     */
+    private fun drawSidesAway(scope: DrawScope, right: Float, below: Float, ix: Float, iy: Float, iw: Float, ih: Float) {
+        val depthX = iw * BoardTransform.LAYER_SHIFT_FACTOR_X
+        val depthY = ih * BoardTransform.LAYER_SHIFT_FACTOR_Y
+        val r = iw * 0.085f
+        val toRight = Color.Black.copy(alpha = right)
+        val down = Color.Black.copy(alpha = below)
+        scope.withTransform({ translate(ix, iy) }) {
+            clipPath(sidesOutline(iw, ih, depthX, depthY)) {
+                drawRect(toRight, Offset(iw - r, 0f), Size(r + depthX, ih - r))
+                drawRect(down, Offset(0f, ih - r), Size(iw - r, r + depthY))
+                drawRect(
+                    Brush.sweepGradient(0f to toRight, 0.25f to down, 1f to toRight, center = Offset(iw - r, ih - r)),
+                    Offset(iw - r, ih - r), Size(r + depthX, r + depthY),
+                )
+            }
+        }
+    }
+
+    // The shade along a stretch from start to end, fading in over [fade] at a start that falls
+    // partway along a side, and out at such an end
+    private fun fadedEnds(shade: Color, start: Float, end: Float, fade: Float, fadeIn: Boolean, fadeOut: Boolean, vertical: Boolean): Brush {
+        val length = end - start
+        val f = (fade / length).coerceAtMost(0.5f)
+        val clear = shade.copy(alpha = 0f)
+        val stops = arrayOf(
+            0f to if (fadeIn) clear else shade,
+            f to shade,
+            1f - f to shade,
+            1f to if (fadeOut) clear else shade,
+        )
+        return if (vertical) Brush.verticalGradient(*stops, startY = start, endY = end)
+        else Brush.horizontalGradient(*stops, startX = start, endX = end)
+    }
+
+    // The sides' outline for a tile iw x ih, at the origin: the tile and its sides swept down
+    // and to the right, less its face. Made once for each tile size
+    private fun sidesOutline(iw: Float, ih: Float, depthX: Float, depthY: Float): Path {
+        val made = sidesPath
+        if (made != null && sidesW == iw && sidesH == ih) return made
+        val r = CornerRadius(iw * 0.085f)
+        val whole = Path().apply { addRoundRect(RoundRect(0f, 0f, iw + depthX, ih + depthY, r)) }
+        val face = Path().apply { addRoundRect(RoundRect(0f, 0f, iw, ih, r)) }
+        val sides = Path().apply { op(whole, face, PathOperation.Difference) }
+        sidesPath = sides
+        sidesW = iw
+        sidesH = ih
+        return sides
+    }
+
+    private var sidesPath: Path? = null
+    private var sidesW = 0f
+    private var sidesH = 0f
+
+    const val SEAM_RIGHT = 1
+    const val SEAM_BOTTOM = 3
+
+    // How dark a side is in the crack against a neighbour
+    private const val SIDE_SHADOW = 0.2f
 
     /**
      * The soft contact shadow a raised tile casts onto the tiles it rests on, deepest at its foot,
