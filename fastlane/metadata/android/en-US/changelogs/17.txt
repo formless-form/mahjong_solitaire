@@ -1,0 +1,4 @@
+New in 1.4.4:
+• Layers are easier to tell apart: lower layers sit a shade darker
+• Tiles sit square and neatly spaced, with soft shadow where they meet
+• Tile sides facing away from the lamp and fire now fall into shade
