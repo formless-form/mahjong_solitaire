@@ -2,6 +2,7 @@ package com.vortessence.mahjong.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.MediaPlayer
 import android.media.SoundPool
 import android.media.audiofx.LoudnessEnhancer
@@ -27,6 +28,24 @@ class AudioManager(private val context: Context) {
     // On the game screen, where the fireplace burns beside the table
     private var room = FireRoom.NONE
     private var matchStreak = 0
+
+    // Audio focus, held while the music plays, so a call, an alarm or another app's music and
+    // podcasts pause the music and the fire, and they come back when that's over (or, if another
+    // app took over for good, when the player next returns). With the music off the game takes no
+    // focus: the faint fire and the tile sounds play alongside whatever else is playing
+    private val system = context.getSystemService(android.media.AudioManager::class.java)
+    private var focusHeld = false
+    // Lost to a call or another app; asked for again only when the player next comes back
+    private var focusLost = false
+    private val focusRequest = AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build(),
+        )
+        .setOnAudioFocusChangeListener({ onFocusChange(it) }, Handler(Looper.getMainLooper()))
+        .build()
     private var lastMatchTimeMs = 0L
 
     private val soundPool: SoundPool = SoundPool.Builder()
@@ -78,12 +97,14 @@ class AudioManager(private val context: Context) {
     fun updateSettings(settings: GameSettings) {
         val previousSettings = currentSettings
         currentSettings = settings
+        syncFocus()
 
-        if (settings.musicEnabled && (settings.musicVolume > 0f)) {
+        if (musicOn(settings)) {
             musicPlayer.setVolume(loudness(settings.musicVolume))
-            val wasMusicEnabled = previousSettings?.let { it.musicEnabled && (it.musicVolume > 0f) } ?: false
-            if (!isInForeground) {
-                // Never start playback while in the background; onResume() will start it.
+            val wasMusicEnabled = previousSettings?.let { musicOn(it) } ?: false
+            if (!canPlayMusic) {
+                // Never start playback in the background or without focus; onResume() (or
+                // regaining focus) will start it.
                 // Stopping here ensures a random song is picked when music was just enabled.
                 if (!wasMusicEnabled) musicPlayer.stop()
             } else if (!wasMusicEnabled) {
@@ -97,6 +118,62 @@ class AudioManager(private val context: Context) {
             musicPlayer.stop()
         }
         if (isInForeground) fireplace.play(fireLevel(settings))
+    }
+
+    private fun musicOn(settings: GameSettings) = settings.musicEnabled && settings.musicVolume > 0f
+
+    private val canPlayMusic get() = isInForeground && focusHeld && !focusLost
+
+    // Holds focus while the music should play, and lets it go otherwise
+    private fun syncFocus() {
+        val want = isInForeground && currentSettings?.let { musicOn(it) } == true
+        if (want && !focusHeld && !focusLost) {
+            val granted = system?.requestAudioFocus(focusRequest) ?: android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            focusHeld = granted == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            // Refused (in a call, say): silent until the player next comes back
+            if (!focusHeld) {
+                focusLost = true
+                fireplace.pause()
+            }
+        } else if (!want && focusHeld) {
+            system?.abandonAudioFocusRequest(focusRequest)
+            focusHeld = false
+        }
+    }
+
+    private fun onFocusChange(change: Int) {
+        when (change) {
+            android.media.AudioManager.AUDIOFOCUS_GAIN -> {
+                focusLost = false
+                if (isInForeground) resumeAmbience()
+            }
+            android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                focusLost = true
+                pauseAmbience()
+            }
+            android.media.AudioManager.AUDIOFOCUS_LOSS -> {
+                // Another app took over for good: let go, and ask again when the player comes back
+                focusLost = true
+                pauseAmbience()
+                system?.abandonAudioFocusRequest(focusRequest)
+                focusHeld = false
+            }
+            // A notification or directions over the music: Android turns it down itself
+            else -> Unit
+        }
+    }
+
+    private fun resumeAmbience() {
+        val settings = currentSettings ?: return
+        if (musicOn(settings) && canPlayMusic) musicPlayer.resume()
+        fireplace.play(fireLevel(settings))
+        fireplace.resume()
+    }
+
+    private fun pauseAmbience() {
+        musicPlayer.pause()
+        fireplace.pause()
+        releaseWinPlayer()
     }
 
     /**
@@ -139,18 +216,16 @@ class AudioManager(private val context: Context) {
 
     fun onResume() {
         isInForeground = true
+        focusLost = false
         if (room == FireRoom.TABLE) prepareWin()
+        syncFocus()
         // Do not play any music until settings have actually been checked and loaded
-        val settings = currentSettings ?: return
-        if (settings.musicEnabled && (settings.musicVolume > 0f)) {
-            musicPlayer.resume()
-        }
-        fireplace.play(fireLevel(settings))
-        fireplace.resume()
+        if (!focusLost) resumeAmbience()
     }
 
     fun onPause() {
         isInForeground = false
+        syncFocus()
         musicPlayer.pause()
         fireplace.pause()
         // The fireworks don't carry on in the background, nor wait there
@@ -162,6 +237,7 @@ class AudioManager(private val context: Context) {
     fun release() {
         // So nothing more is made ready, and what's being made is let go
         isInForeground = false
+        syncFocus()
         releaseWinPlayer()
         dropReadyWin()
         winLoader.shutdown()
@@ -223,7 +299,7 @@ class AudioManager(private val context: Context) {
     }
 
     fun playWin() {
-        if (!isInForeground) return
+        if (!isInForeground || focusLost) return
         val settings = currentSettings ?: return
         if (settings.soundEnabled) {
             playWinPhrase(loudness(settings.soundVolume))
