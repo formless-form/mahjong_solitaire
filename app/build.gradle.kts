@@ -44,8 +44,9 @@ android {
     dependenciesInfo {
         // Disables dependency metadata when building APKs (for F-Droid)
         includeInApk = false
-        // Disables dependency metadata when building Android App Bundles
-        includeInBundle = false
+        // Kept in the App Bundle, which only Google Play receives (encrypted), so Play Console can
+        // flag outdated or vulnerable libraries
+        includeInBundle = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

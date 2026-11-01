@@ -15,9 +15,10 @@ KEYSTORE="$HOME/.config/dark-mahjong/upload-keystore.p12"
 DARK_MAHJONG_UPLOAD_KEY_PASS="$(python3 "$HOME/server_secrets.py" get DARK_MAHJONG_UPLOAD_KEY_PASS)"
 export DARK_MAHJONG_UPLOAD_KEY_PASS
 
-# Memory-capped, as for every Gradle build on this server
+# Memory-capped, as for every Gradle build on this server. Perf hooks are forced off, whatever
+# gradle.properties says
 systemd-run --user --collect --wait --pipe -p MemoryMax=6G -p MemorySwapMax=1G \
-    --working-directory="$PWD" --unit=mahjong-build "$PWD/gradlew" bundlePlayRelease --no-daemon --console=plain -q
+    --working-directory="$PWD" --unit=mahjong-build "$PWD/gradlew" bundlePlayRelease -PperfHooks=false --no-daemon --console=plain -q
 
 VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
 mkdir -p dist

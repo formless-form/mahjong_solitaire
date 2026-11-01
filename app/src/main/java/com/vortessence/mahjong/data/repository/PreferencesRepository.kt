@@ -144,7 +144,7 @@ class PreferencesRepository(private val context: Context) {
             if ((prefs[Keys.LEVEL_ORDER] ?: 1) >= MEASURED_LEVEL_ORDER) return@write
             prefs[Keys.LEVEL_ORDER] = MEASURED_LEVEL_ORDER
             val highest = prefs[Keys.HIGHEST_LEVEL] ?: return@write
-            prefs[Keys.HIGHEST_LEVEL] = LayoutDifficulty.highestAfterReorder(highest) { ConstellationRepository.levelIndexOf(it) }
+            prefs[Keys.HIGHEST_LEVEL] = LayoutDifficulty.highestAfterReorder(highest.coerceAtLeast(0)) { ConstellationRepository.levelIndexOf(it) }
         }
     }
 
@@ -203,7 +203,7 @@ class PreferencesRepository(private val context: Context) {
         val size = pool.messages.size
         val parts = prefs[Keys.congratsBag(pool)]?.split(",")?.mapNotNull { it.toLongOrNull() }
         var seed = parts?.getOrNull(0) ?: 0L
-        var position = parts?.getOrNull(1)?.toInt() ?: size
+        var position = parts?.getOrNull(1)?.toInt()?.coerceAtLeast(0) ?: size
         var previousLast = parts?.getOrNull(2)?.toInt() ?: -1
         fun order(): List<Int> {
             val o = (0 until size).shuffled(Random(seed)).toMutableList()

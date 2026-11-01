@@ -1,7 +1,8 @@
 package com.vortessence.mahjong
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.compose.setContent
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
 import com.vortessence.mahjong.data.repository.ConstellationRepository
@@ -13,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -21,16 +23,20 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class BackNavigationTest {
     @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createEmptyComposeRule()
 
     private fun backFromGame(start: (MahjongViewModel) -> Unit): Screen {
         // The menus' firelight never settles: the clock is stepped by hand
         MenuFire.flickers = false
         compose.mainClock.autoAdvance = false
-        val viewModel = MahjongViewModel(compose.activity.application)
-        val updates = AppUpdates(compose.activity)
-        compose.setContent { MahjongApp(viewModel, updates) }
-        compose.runOnUiThread { start(viewModel) }
+        // Updates made before the activity starts, as in its onCreate: the Play build's register then
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).create()
+        val activity = controller.get()
+        val viewModel = MahjongViewModel(activity.application)
+        val updates = AppUpdates(activity)
+        controller.start().resume().visible()
+        activity.setContent { MahjongApp(viewModel, updates) }
+        compose.runOnIdle { start(viewModel) }
         compose.mainClock.advanceTimeBy(2000)
         compose.onAllNodesWithContentDescription("Back")[0].performClick()
         compose.mainClock.advanceTimeBy(2000)

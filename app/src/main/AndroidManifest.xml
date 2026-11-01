@@ -3,9 +3,11 @@
 
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- A game, so large screens (tablets, unfolded foldables) keep its portrait lock -->
+    <!-- A game, so large screens (tablets, unfolded foldables) keep its portrait lock. Predictive
+         back is opted into for Android 14 and 15; Android 16 turns it on itself for this target -->
     <application
         android:appCategory="game"
+        android:enableOnBackInvokedCallback="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
