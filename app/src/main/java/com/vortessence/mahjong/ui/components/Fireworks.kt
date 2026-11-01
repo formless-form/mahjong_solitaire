@@ -33,8 +33,14 @@ import androidx.compose.ui.graphics.nativeCanvas
  * builds up like real glow. Runs once, then stops drawing.
  */
 @Composable
-fun FireworksShow(modifier: Modifier = Modifier, seed: Long = System.nanoTime(), onFinished: () -> Unit = {}) {
-    val show = remember(seed) { FireworksSimulation(Random(seed)) }
+fun FireworksShow(
+    modifier: Modifier = Modifier,
+    seed: Long = System.nanoTime(),
+    // Low-performance mode's show: fewer shells, smaller, no crackle
+    lite: Boolean = false,
+    onFinished: () -> Unit = {},
+) {
+    val show = remember(seed, lite) { FireworksSimulation(Random(seed), cap = if (lite) LITE_SHOW_SPARKS else 4200, allowCrackle = !lite, lite = lite) }
     var frame by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(show) {
@@ -57,9 +63,12 @@ fun FireworksShow(modifier: Modifier = Modifier, seed: Long = System.nanoTime(),
     }
 }
 
+// The lite win show's spark budget (the full show's is 4200)
+private const val LITE_SHOW_SPARKS = 900
+
 /** Advances a fresh show [seconds] into its run without animating; used for previews and tests. */
-internal fun fireworksSnapshot(seed: Long, seconds: Float): (DrawScope) -> Unit {
-    val show = FireworksSimulation(Random(seed))
+internal fun fireworksSnapshot(seed: Long, seconds: Float, lite: Boolean = false): (DrawScope) -> Unit {
+    val show = FireworksSimulation(Random(seed), cap = if (lite) LITE_SHOW_SPARKS else 4200, allowCrackle = !lite, lite = lite)
     var t = 0f
     while (t < seconds) {
         show.step(1f / 60f)
@@ -73,8 +82,10 @@ internal fun fireworksSnapshot(seed: Long, seconds: Float): (DrawScope) -> Unit 
  * play never waits on them. A few shells are made once and reused, so a match allocates nothing;
  * several can overlap when the player matches quickly (the oldest gives way if all are busy).
  */
-internal class MatchBursts {
-    private val pool = Array(POOL) { FireworksSimulation(Random(it + 1L), SingleBurst(), cap = MATCH_SPARKS) }
+internal class MatchBursts(lite: Boolean = false) {
+    private val pool = Array(POOL) {
+        FireworksSimulation(Random(it + 1L), SingleBurst(), cap = if (lite) LITE_SPARKS else MATCH_SPARKS, allowCrackle = !lite)
+    }
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
     /** Bumped every frame while a burst is alive, so a Canvas that draws these redraws. */
@@ -125,6 +136,8 @@ internal class MatchBursts {
         const val POOL = 3
         // Enough sparks to read as a shell at a tile's size, and no more
         const val MATCH_SPARKS = 40
+        // Low-performance mode: still reads as a sparkle, at about a third of the drawing
+        const val LITE_SPARKS = 14
     }
 }
 
@@ -138,7 +151,13 @@ private enum class BurstStyle { PEONY, RING, CHRYSANTHEMUM, WILLOW, CRACKLE, MUL
  * units of the canvas height, so bursts look the same on any screen; x runs 0..aspect. A lone
  * shell ([single]) can be [restart]ed, reusing its arrays.
  */
-private class FireworksSimulation(private var rnd: Random, private val single: SingleBurst? = null, private val cap: Int = 4200) {
+private class FireworksSimulation(
+    private var rnd: Random,
+    private val single: SingleBurst? = null,
+    private val cap: Int = 4200,
+    private val allowCrackle: Boolean = true,
+    private val lite: Boolean = false,
+) {
     private val x = FloatArray(cap)
     private val y = FloatArray(cap)
     private val vx = FloatArray(cap)
@@ -171,8 +190,17 @@ private class FireworksSimulation(private var rnd: Random, private val single: S
     private var aspect = 0.45f
     private var time = 0f
 
-    // Dense schedule: an opening volley, a busy middle, and a closing barrage
-    private val burstTimes: FloatArray = if (single != null) floatArrayOf(0f) else buildList {
+    // Dense schedule: an opening volley, a busy middle, and a closing barrage. The lite show is
+    // the same shape with about a third of the shells
+    private val burstTimes: FloatArray = if (single != null) floatArrayOf(0f) else if (lite) buildList {
+        for (i in 0 until 2) add(0.02f + i * 0.15f + rnd.nextFloat() * 0.05f)
+        var t = 0.6f
+        while (t < 3.3f) {
+            add(t)
+            t += 0.3f + rnd.nextFloat() * 0.3f
+        }
+        for (i in 0 until 3) add(3.35f + i * 0.12f + rnd.nextFloat() * 0.05f)
+    }.sorted().toFloatArray() else buildList {
         for (i in 0 until 4) add(0.02f + i * 0.09f + rnd.nextFloat() * 0.05f)
         var t = 0.45f
         while (t < 3.3f) {
@@ -249,7 +277,14 @@ private class FireworksSimulation(private var rnd: Random, private val single: S
             BurstStyle.CHRYSANTHEMUM -> 170
             BurstStyle.CRACKLE -> 110
             else -> 150
-        }.let { if (single != null) (it * cap / 150).coerceAtMost(cap) else it }
+        }.let {
+            when {
+                single != null -> (it * cap / 150).coerceAtMost(cap)
+                // Lighter shells for the lite show
+                lite -> it * 2 / 5
+                else -> it
+            }
+        }
         for (k in 0 until count) {
             // Uniform direction on a sphere, seen from above: (x, y) of the unit vector.
             // Projected, this fills a disc that is densest towards its rim.
@@ -340,7 +375,7 @@ private class FireworksSimulation(private var rnd: Random, private val single: S
         twinkle[i] = rnd.nextFloat() * 6.28f
         hot[i] = 0.12f + rnd.nextFloat() * 0.1f
         r[i] = cr; g[i] = cg; b[i] = cb; r2[i] = er; g2[i] = eg; b2[i] = eb
-        crackle[i] = crackles
+        crackle[i] = crackles && allowCrackle
     }
 
     /** Draws the sparks, positions being in units of [height] (by default the scope's). */

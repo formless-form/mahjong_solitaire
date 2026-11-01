@@ -1,5 +1,12 @@
 package com.vortessence.mahjong.ui.screens
 
+import com.vortessence.mahjong.ui.components.BigButton
+import com.vortessence.mahjong.data.model.Difficulty
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -82,6 +89,8 @@ fun MainMenuScreen(
     todaysPuzzle: String? = null,
     todaysPuzzleSolved: Boolean = false,
     onTodaysPuzzle: () -> Unit = {},
+    // Quick Game, at the difficulty picked (null for any)
+    onQuickGame: (Difficulty?) -> Unit = {},
     onPlayLevels: () -> Unit,
     onChooseConstellation: () -> Unit,
     onSettings: () -> Unit,
@@ -90,7 +99,18 @@ fun MainMenuScreen(
     update: UpdateNotice? = null,
     onUpdate: () -> Unit = {},
 ) {
+    var pickingQuickGame by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize().background(Shade)) {
+        if (pickingQuickGame) {
+            QuickGamePicker(
+                onPick = { difficulty ->
+                    pickingQuickGame = false
+                    onMenuClick()
+                    onQuickGame(difficulty)
+                },
+                onDismiss = { pickingQuickGame = false },
+            )
+        }
         // Scaled uniformly to fill, so the photo is never stretched; film grain in the same pass
         TitleBackdrop(R.drawable.title_mountains, Modifier.fillMaxSize())
         // Darken the bright sky behind the title, and deepen the forest behind the menu
@@ -144,6 +164,7 @@ fun MainMenuScreen(
                     onMenuClick = onMenuClick, onClick = onTodaysPuzzle,
                 )
             }
+            MenuItem("Quick Game", menuStyle, onMenuClick = onMenuClick, onClick = { pickingQuickGame = true })
             MenuItem("Play", menuStyle, onMenuClick = onMenuClick, onClick = onPlayLevels)
             MenuItem("Layouts", menuStyle, onMenuClick = onMenuClick, onClick = onChooseConstellation)
             MenuItem("Settings", menuStyle, onMenuClick = onMenuClick, onClick = onSettings)
@@ -215,6 +236,8 @@ private fun titleStyle(color: Color, size: TextUnit = 17.sp) = TextStyle(
 
 // How far a menu row's line under its name sits up from where the line heights put it
 private val SUBTITLE_LIFT = (-6).dp
+private val MENU_ROW = 56.dp
+private val MENU_NAME_TOP = 8.dp
 
 // An update's mention and Today's Puzzle's tick: the app's jade, as everywhere
 private val UpdateTint = JadeAccent
@@ -247,11 +270,14 @@ private fun MenuItem(
     val pressed by interaction.collectIsPressedAsState()
     val textColor by animateColorAsState(if (pressed) TitleTextBright else TitleText, tween(120), label = "menuText")
 
+    // Every row the same height, its name at the same place, so the names are evenly spaced
+    // whether or not a line sits under them
     Column(
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (subtitle != null) 60.dp else 52.dp)
+            .height(MENU_ROW)
+            .padding(top = MENU_NAME_TOP)
             .clickable(interactionSource = interaction, indication = null) {
                 onMenuClick()
                 onClick()
@@ -314,5 +340,34 @@ fun MainMenuPreview() {
             onChooseConstellation = {},
             onSettings = {},
         )
+    }
+}
+
+// Quick Game's choice: a difficulty, or any; a random layout of it is dealt at once
+@Composable
+private fun QuickGamePicker(onPick: (Difficulty?) -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLargeIncreased,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)) {
+                Text("Quick Game", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Quickly start a game with a random layout",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(22.dp))
+                for (row in Difficulty.entries.chunked(2)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        for (d in row) BigButton(d.displayName, onClick = { onPick(d) }, compact = true, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                BigButton("Any difficulty", onClick = { onPick(null) }, primary = true, modifier = Modifier.fillMaxWidth())
+            }
+        }
     }
 }

@@ -15,6 +15,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.vortessence.mahjong.data.model.GameSettings
+import com.vortessence.mahjong.data.model.MAX_HINTS
 import com.vortessence.mahjong.data.model.Progress
 import com.vortessence.mahjong.data.model.SavedGameState
 import com.vortessence.mahjong.data.model.TableSurface
@@ -54,6 +55,9 @@ class PreferencesRepository(private val context: Context) {
         val TABLE_SURFACE = stringPreferencesKey("table_surface")
         val LAMP_BRIGHTNESS = floatPreferencesKey("lamp_brightness")
         val FIREPLACE = booleanPreferencesKey("fireplace")
+        val LOW_PERFORMANCE = booleanPreferencesKey("low_performance")
+        val CLEAN_CONSTELLATIONS = stringSetPreferencesKey("clean_constellations")
+        val HINTS = intPreferencesKey("hints")
         val FIRE_VOLUME = floatPreferencesKey("fire_volume")
         val FIRE_INTENSITY = floatPreferencesKey("fire_intensity")
         val WIDE_BOARDS = stringPreferencesKey("wide_boards")
@@ -93,6 +97,7 @@ class PreferencesRepository(private val context: Context) {
                 ?: d.tableSurface,
             lampBrightness = prefs[Keys.LAMP_BRIGHTNESS] ?: d.lampBrightness,
             fireplaceLit = prefs[Keys.FIREPLACE] ?: d.fireplaceLit,
+            lowPerformance = prefs[Keys.LOW_PERFORMANCE] ?: d.lowPerformance,
             fireVolume = prefs[Keys.FIRE_VOLUME] ?: d.fireVolume,
             fireIntensity = prefs[Keys.FIRE_INTENSITY] ?: d.fireIntensity,
             wideBoards = prefs[Keys.WIDE_BOARDS]
@@ -105,6 +110,8 @@ class PreferencesRepository(private val context: Context) {
         Progress(
             highestLevelReached = prefs[Keys.HIGHEST_LEVEL] ?: 1,
             completedConstellations = prefs[Keys.COMPLETED_CONSTELLATIONS] ?: emptySet(),
+            cleanConstellations = prefs[Keys.CLEAN_CONSTELLATIONS] ?: emptySet(),
+            hints = prefs[Keys.HINTS] ?: 0,
             puzzleDaysSolved = prefs[Keys.PUZZLE_DAYS_SOLVED]?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet(),
         )
     }.distinctUntilChanged()
@@ -129,6 +136,7 @@ class PreferencesRepository(private val context: Context) {
             put(Keys.TABLE_SURFACE) { it.tableSurface.name }
             put(Keys.LAMP_BRIGHTNESS) { it.lampBrightness }
             put(Keys.FIREPLACE) { it.fireplaceLit }
+            put(Keys.LOW_PERFORMANCE) { it.lowPerformance }
             put(Keys.FIRE_VOLUME) { it.fireVolume }
             put(Keys.FIRE_INTENSITY) { it.fireIntensity }
             put(Keys.WIDE_BOARDS) { it.wideBoards.name }
@@ -139,6 +147,33 @@ class PreferencesRepository(private val context: Context) {
      * Once, after levels were ordered by measured difficulty: the stored highest level is carried
      * over to the new numbering, so no layout a player could play becomes locked.
      */
+    /**
+     * Hints became earned in 1.4.6: a player who had already played starts with 2, a new one
+     * with none. Settled once, on the first launch that has hints.
+     */
+    suspend fun migrateHints() {
+        write { prefs ->
+            if (prefs[Keys.HINTS] != null) return@write
+            val played = (prefs[Keys.HIGHEST_LEVEL] ?: 1) > 1 ||
+                !prefs[Keys.COMPLETED_CONSTELLATIONS].isNullOrEmpty() ||
+                !prefs[Keys.PUZZLE_DAYS_SOLVED].isNullOrEmpty()
+            prefs[Keys.HINTS] = if (played) EXISTING_PLAYER_HINTS else 0
+        }
+    }
+
+    /** One hint spent; false if there were none. */
+    suspend fun spendHint(): Boolean {
+        var spent = false
+        write { prefs ->
+            val hints = prefs[Keys.HINTS] ?: 0
+            if (hints > 0) {
+                prefs[Keys.HINTS] = hints - 1
+                spent = true
+            }
+        }
+        return spent
+    }
+
     suspend fun migrateLevelOrder() {
         write { prefs ->
             if ((prefs[Keys.LEVEL_ORDER] ?: 1) >= MEASURED_LEVEL_ORDER) return@write
@@ -155,8 +190,21 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun recordGameWon(constellationId: String, levelIndex: Int?) {
+    /** Records a win; true if it was the player's first clean clear (their first gold ribbon). */
+    suspend fun recordGameWon(constellationId: String, levelIndex: Int?, clean: Boolean = false, puzzleDay: Long? = null): Boolean {
+        var firstRibbon = false
         write { prefs ->
+            if (clean) {
+                val cleaned = prefs[Keys.CLEAN_CONSTELLATIONS] ?: emptySet()
+                // Today's Puzzle is cleaned per day (no ribbon on the layout itself); anything else
+                // per layout. The first clean clear of each earns a hint
+                val key = puzzleDay?.let { "$PUZZLE_DAY_PREFIX$it" } ?: constellationId
+                firstRibbon = cleaned.none { !it.startsWith(PUZZLE_DAY_PREFIX) } && puzzleDay == null
+                if (key !in cleaned) {
+                    prefs[Keys.CLEAN_CONSTELLATIONS] = cleaned + key
+                    prefs[Keys.HINTS] = ((prefs[Keys.HINTS] ?: 0) + 1).coerceAtMost(MAX_HINTS)
+                }
+            }
             // Level progression
             if (levelIndex != null) {
                 val currentHighest = prefs[Keys.HIGHEST_LEVEL] ?: 1
@@ -170,6 +218,7 @@ class PreferencesRepository(private val context: Context) {
             completedSet.add(constellationId)
             prefs[Keys.COMPLETED_CONSTELLATIONS] = completedSet
         }
+        return firstRibbon
     }
 
     /**
@@ -237,3 +286,9 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 }
+
+// Players from before hints were earned start with these
+private const val EXISTING_PLAYER_HINTS = 2
+
+// Clean-clear keys for Today's Puzzle days, beside the layout ids
+private const val PUZZLE_DAY_PREFIX = "day:"

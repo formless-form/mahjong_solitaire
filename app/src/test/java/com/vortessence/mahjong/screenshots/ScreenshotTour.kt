@@ -1,5 +1,7 @@
 package com.vortessence.mahjong.screenshots
 
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.performClick
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -154,6 +156,28 @@ class ScreenshotTour {
         shoot("levels")
     }
 
+
+    // Gold ribbons on the levels cleared cleanly
+    @Test
+    fun levelsWithRibbons() {
+        compose.setContent {
+            MahjongTheme {
+                LevelSelectScreen(
+                    progress = someProgress.copy(
+                        highestLevelReached = 4,
+                        completedConstellations = ConstellationRepository.levelConstellations.take(3).map { it.id }.toSet() + "tutorial",
+                        // Levels 1 and 3 cleared cleanly; 2 with help
+                        cleanConstellations = ConstellationRepository.levelConstellations.let { setOf(it[0].id, it[2].id) },
+                    ),
+                    levels = ConstellationRepository.levelConstellations,
+                    onLevelSelected = {},
+                    onBack = {},
+                )
+            }
+        }
+        shoot("levels_ribbons")
+    }
+
     @Test
     fun layouts() {
         compose.setContent {
@@ -171,12 +195,47 @@ class ScreenshotTour {
                 GameScreen(
                     gameState = state,
                     levelIndex = null,
-                    settings = GameSettings(tableSurface = surface),
+                    settings = GameSettings(tableSurface = surface, fireplaceLit = false),
                     onBack = {}, onTileClick = {}, onHint = {}, onUndo = {}, onRestart = {},
                     onReshuffle = {}, onNextLevel = {}, onMainMenu = {},
                 )
             }
         }
+        shoot(shot)
+    }
+
+    // The end of a board: three pairs left on the lowest layer, and the Finish button offered
+    @Test
+    fun finishOffered() = boardEnd(ConstellationRepository.mahConstellations.first { it.name == "Cactus" }, "finish_offered")
+
+    // Auto-zoom on the last tiles of Jade Pillar, a board with big tiles: held to a comfortable size
+    @Test
+    fun autoZoomCapped() = boardEnd(ConstellationRepository.getById("jade_pillar")!!, "auto_zoom_jade_pillar")
+
+    private fun boardEnd(layout: com.vortessence.mahjong.data.model.Constellation, shot: String) {
+        TileWear.prepareNow()
+        val start = MahjongGameEngine.startNewGame(layout)
+        val ground = start.tiles.minOf { it.position.z }
+        val random = kotlin.random.Random(3)
+        val state = generateSequence {
+            val pairs = start.tiles.filter { it.position.z == ground }.groupBy { it.tile.suit to it.tile.value }
+                .values.filter { it.size >= 2 }.shuffled(random).take(3).map { it.take(2) }.flatten().map { it.id }.toSet()
+            val tiles = MahjongGameEngine.recalculateFreedom(start.tiles.map { it.copy(isRemoved = it.id !in pairs) })
+            start.copy(tiles = tiles, availablePairsCount = MahjongGameEngine.findAvailablePairs(tiles).size)
+        }.take(200).first { it.canFinish }
+        compose.setContent {
+            MahjongTheme {
+                GameScreen(
+                    // Unlit, so the screen settles for its picture (the fire flickers for ever)
+                    settings = GameSettings(fireplaceLit = false),
+                    gameState = state,
+                    levelIndex = 12,
+                    onBack = {}, onTileClick = {}, onHint = {}, onUndo = {}, onRestart = {},
+                    onReshuffle = {}, onNextLevel = {}, onMainMenu = {},
+                )
+            }
+        }
+        compose.mainClock.advanceTimeBy(1000)
         shoot(shot)
     }
 
@@ -199,6 +258,8 @@ class ScreenshotTour {
         compose.setContent {
             MahjongTheme {
                 GameScreen(
+                    // Unlit, so the screen settles for its picture (the fire flickers for ever)
+                    settings = GameSettings(fireplaceLit = false),
                     gameState = MahjongGameEngine.startNewGame(tutorial),
                     levelIndex = ConstellationRepository.TUTORIAL_LEVEL,
                     tutorialStep = TutorialScript.steps.first(),
@@ -217,6 +278,8 @@ class ScreenshotTour {
         compose.setContent {
             MahjongTheme {
                 GameScreen(
+                    // Unlit, so the screen settles for its picture (the fire flickers for ever)
+                    settings = GameSettings(fireplaceLit = false),
                     gameState = MahjongGameEngine.startNewGame(tutorial),
                     levelIndex = ConstellationRepository.TUTORIAL_LEVEL,
                     tutorialStep = TutorialScript.steps.single { it.title == title },
@@ -406,18 +469,39 @@ class ScreenshotTour {
         shoot("title_todays_puzzle")
     }
 
+    // Quick Game: its row on the title menu, and the difficulty picker it opens
+    @Test
+    fun quickGamePicker() {
+        compose.setContent {
+            MahjongTheme {
+                MainMenuScreen(
+                    continueInfo = ContinueInfo("Level 22: Heart"),
+                    todaysPuzzle = "Saturday · Expert", todaysPuzzleSolved = true,
+                    onPlayLevels = {}, onChooseConstellation = {}, onSettings = {},
+                )
+            }
+        }
+        shoot("title_quick_game")
+        compose.onNodeWithText("Quick Game").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(isDialog()).captureRoboImage("build/screenshots/quick_game_picker.png")
+    }
+
     private fun level(index: Int): GameState =
         MahjongGameEngine.startNewGame(ConstellationRepository.getLevel(index))
 
-    private fun game(surface: TableSurface, levelIndex: Int, state: GameState = level(levelIndex), message: String? = null) {
+    private fun game(surface: TableSurface, levelIndex: Int?, state: GameState = level(levelIndex!!), message: String? = null, firstRibbon: Boolean = false, hints: Int? = null, quickGame: Boolean = false) {
         TileWear.prepareNow()
         compose.setContent {
             MahjongTheme {
                 GameScreen(
                     gameState = state,
                     levelIndex = levelIndex,
-                    settings = GameSettings(tableSurface = surface),
+                    settings = GameSettings(tableSurface = surface, fireplaceLit = false),
                     winMessage = message,
+                    firstRibbon = firstRibbon,
+                    hints = hints,
+                    quickGame = quickGame,
                     totalLevels = ConstellationRepository.totalLevels,
                     onBack = {}, onTileClick = {}, onHint = {}, onUndo = {}, onRestart = {},
                     onReshuffle = {}, onNextLevel = {}, onMainMenu = {},
@@ -449,6 +533,16 @@ class ScreenshotTour {
         shoot("game_zoomed")
     }
 
+    // A Quick Game won: a layout outside the levels, so no Next
+    @Test
+    fun celebrationQuickGame() {
+        compose.mainClock.autoAdvance = false
+        val won = level(9).let { s -> s.copy(tiles = s.tiles.map { it.copy(isRemoved = true) }, isWon = true) }
+        game(TableSurface.WALNUT, null, won, message = "The mist lifts, and so do the tiles.", quickGame = true)
+        compose.mainClock.advanceTimeBy(2200)
+        shoot("celebration_quick_game")
+    }
+
     @Test
     fun celebration() {
         compose.mainClock.autoAdvance = false
@@ -457,6 +551,33 @@ class ScreenshotTour {
         // The 600 ms smash, then the card's 1.1 s, and a little of its fade
         compose.mainClock.advanceTimeBy(2200)
         shoot("celebration")
+    }
+
+    // Earned hints: two to spend, shown on the Hint button
+    @Test
+    fun hintsLeft() {
+        game(TableSurface.GREEN_MAT, 5, hints = 2)
+        shoot("hints_two")
+    }
+
+    // None left: the button greyed, and a tap says how to earn one
+    @Test
+    fun hintsNone() {
+        game(TableSurface.GREEN_MAT, 5, hints = 0)
+        compose.onNodeWithText("Hint").performClick()
+        compose.mainClock.advanceTimeBy(600)
+        shoot("hints_none")
+    }
+
+    // The first clean clear: the card introduces the gold ribbon
+    @Test
+    fun celebrationFirstRibbon() {
+        compose.mainClock.autoAdvance = false
+        val won = level(5).let { s -> s.copy(tiles = s.tiles.map { it.copy(isRemoved = true) }, isWon = true) }
+        game(TableSurface.WALNUT, 5, won, message = "The mist lifts, and so do the tiles.", firstRibbon = true)
+        // The 600 ms smash, then the card's 1.1 s, and a little of its fade
+        compose.mainClock.advanceTimeBy(2200)
+        shoot("celebration_first_ribbon")
     }
 
     @Test
@@ -468,6 +589,18 @@ class ScreenshotTour {
             }
         }
         shoot("fireworks")
+    }
+
+    // Low-performance mode's lighter show, at the same moment
+    @Test
+    fun fireworksLite() {
+        compose.setContent {
+            Box(Modifier.fillMaxSize().background(Color(0xFF0A0C0B))) {
+                val draw = fireworksSnapshot(seed = 7L, seconds = 1.9f, lite = true)
+                Canvas(Modifier.fillMaxSize()) { draw(this) }
+            }
+        }
+        shoot("fireworks_lite")
     }
 
     @Test
@@ -494,6 +627,15 @@ class ScreenshotTour {
     }
 
     // The whole settings list on one tall page, down to the credits at its foot
+    // Low-performance mode on: the fire out (as the app shows it, with animations stilled)
+    @Test @Config(qualifiers = "w427dp-h3400dp-port-360dpi")
+    fun settingsLowPerformance() {
+        compose.setContent {
+            MahjongTheme { SettingsScreen(settings = GameSettings(lowPerformance = true, animationsEnabled = false), onSettingsChanged = {}, onBack = {}) }
+        }
+        shoot("settings_low_performance")
+    }
+
     @Test @Config(qualifiers = "w427dp-h3400dp-port-360dpi")
     fun settingsFullLength() {
         compose.setContent {

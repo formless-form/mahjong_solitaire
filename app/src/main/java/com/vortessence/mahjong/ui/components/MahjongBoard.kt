@@ -229,7 +229,8 @@ private fun BoardContent(
         canvasH,
         paddingPx,
         settings.autoZoomEnabled,
-        baseTransform
+        baseTransform,
+        density,
     ) {
         if (settings.autoZoomEnabled) {
             val activeTiles = gameState.tiles.filter { !it.isRemoved }
@@ -239,7 +240,10 @@ private fun BoardContent(
                     availableWidth = canvasW,
                     availableHeight = canvasH,
                     paddingPx = paddingPx,
-                    maxZoomFactor = 1.8f,
+                    // At most 1.8 times the whole board's size, and never past a comfortable tile
+                    // size, so the last few tiles of a board with big tiles don't fill the screen
+                    maxZoomFactor = min(AUTO_ZOOM_FACTOR, with(density) { AUTO_ZOOM_MAX_TILE.toPx() } / 2f / baseTransform.unitX)
+                        .coerceAtLeast(1.0001f),
                     baseUnitX = baseTransform.unitX
                 )
             } else {
@@ -290,7 +294,8 @@ private fun BoardContent(
     )
 
     // Matching tiles smash animations, each ending in a small firework burst where they meet
-    val matchBursts = remember { MatchBursts() }
+    // Low-performance mode's sparkle is a third the size: fewer sparks, no crackle
+    val matchBursts = remember(settings.animationsEnabled) { MatchBursts(lite = !settings.animationsEnabled) }
     var activeSmashes by remember { mutableStateOf<List<SmashAnimationItem>>(emptyList()) }
     var prevMoveCount by remember { mutableIntStateOf(gameState.moveHistory.size) }
 
@@ -305,9 +310,9 @@ private fun BoardContent(
     // effect's: the next match restarts the effect, and must not cut short the one before
     val animationScope = rememberCoroutineScope()
     LaunchedEffect(matchBursts) { matchBursts.run() }
-    LaunchedEffect(gameState.moveHistory.size, settings.animationsEnabled) {
+    LaunchedEffect(gameState.moveHistory.size, settings.matchSmash) {
         val currentCount = gameState.moveHistory.size
-        if (currentCount > prevMoveCount && settings.animationsEnabled) {
+        if (currentCount > prevMoveCount && settings.matchSmash) {
             val latestMove = gameState.moveHistory.last()
             val t1 = gameState.tiles.firstOrNull { it.id == latestMove.tileId1 }
             val t2 = gameState.tiles.firstOrNull { it.id == latestMove.tileId2 }
@@ -1188,3 +1193,8 @@ private fun findTappedTileId(
     }
     return null
 }
+
+// Auto-zoom on the tiles left: at most this many times the whole board's size, and tiles at most
+// this wide (about 1.3 times the gentlest levels' tiles on a phone)
+private const val AUTO_ZOOM_FACTOR = 1.8f
+private val AUTO_ZOOM_MAX_TILE = 62.dp

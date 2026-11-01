@@ -50,7 +50,7 @@ class StoreScreenshots {
                 GameScreen(
                     gameState = state,
                     levelIndex = levelIndex,
-                    settings = GameSettings(tableSurface = surface),
+                    settings = GameSettings(tableSurface = surface, fireplaceLit = false),
                     winMessage = message,
                     onBack = {}, onTileClick = {}, onHint = {}, onUndo = {}, onRestart = {},
                     onReshuffle = {}, onNextLevel = {}, onMainMenu = {},

@@ -291,6 +291,20 @@ object MahjongGameEngine {
         availablePairs.isEmpty() && tiles.any { !it.isRemoved }
 
     /**
+     * An order that clears every tile left, pair by pair, or null if there is none. Searched
+     * exhaustively, so only for the few tiles at a board's end.
+     */
+    fun clearingOrder(tiles: List<BoardTile>): List<Pair<Int, Int>>? {
+        val board = recalculateFreedom(tiles)
+        if (board.none { !it.isRemoved }) return emptyList()
+        for (pair in findAvailablePairs(board)) {
+            val after = board.map { if (it.id == pair.first || it.id == pair.second) it.copy(isRemoved = true) else it }
+            clearingOrder(after)?.let { return listOf(pair) + it }
+        }
+        return null
+    }
+
+    /**
      * Recalculates the `isFree` status for every active tile on the board.
      */
     fun recalculateFreedom(tiles: List<BoardTile>): List<BoardTile> {

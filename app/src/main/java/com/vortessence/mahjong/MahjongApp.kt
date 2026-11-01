@@ -44,12 +44,15 @@ import java.util.Locale
 fun MahjongApp(viewModel: MahjongViewModel, updates: AppUpdates) {
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val gameState by viewModel.gameState.collectAsStateWithLifecycle()
+    val finishing by viewModel.finishing.collectAsStateWithLifecycle()
     val levelIndex by viewModel.currentLevelIndex.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val continueInfo by viewModel.continueInfo.collectAsStateWithLifecycle()
     val tutorialStep by viewModel.tutorialStep.collectAsStateWithLifecycle()
     val winMessage by viewModel.winMessage.collectAsStateWithLifecycle()
+    val firstRibbon by viewModel.firstRibbon.collectAsStateWithLifecycle()
+    val quickGame by viewModel.quickGame.collectAsStateWithLifecycle()
     val update by updates.notice.collectAsStateWithLifecycle()
     val gameOrigin by viewModel.gameOrigin.collectAsStateWithLifecycle()
     val puzzleDay by viewModel.puzzleDay.collectAsStateWithLifecycle()
@@ -73,6 +76,7 @@ fun MahjongApp(viewModel: MahjongViewModel, updates: AppUpdates) {
             todaysPuzzle = remember(currentScreen) { todaysPuzzleLine() },
             todaysPuzzleSolved = TodaysPuzzle.today() in progress.puzzleDaysSolved,
             onTodaysPuzzle = { viewModel.navigateTo(Screen.TodaysPuzzle) },
+            onQuickGame = { viewModel.startQuickGame(it) },
             onPlayLevels = { viewModel.navigateTo(Screen.LevelSelect) },
             onChooseConstellation = { viewModel.navigateTo(Screen.ConstellationSelect) },
             onSettings = { viewModel.navigateTo(Screen.Settings) },
@@ -141,6 +145,11 @@ fun MahjongApp(viewModel: MahjongViewModel, updates: AppUpdates) {
                         todaysPuzzle = puzzleDay != null,
                         tutorialStep = tutorialStep,
                         winMessage = winMessage,
+                        firstRibbon = firstRibbon,
+                        // Free in the tutorial; earned everywhere else
+                        hints = if (tutorialStep != null) null else progress.hints,
+                        quickGame = quickGame,
+                        onAnotherQuickGame = { viewModel.anotherQuickGame() },
                         totalLevels = viewModel.currentLevelConstellations.size,
                         onBack = stepBack,
                         onTileClick = { tileId -> viewModel.onTileTapped(tileId) },
@@ -156,6 +165,8 @@ fun MahjongApp(viewModel: MahjongViewModel, updates: AppUpdates) {
                         onTutorialContinue = { step -> viewModel.continueTutorial(step) },
                         onBoardZoom = { viewModel.onBoardZoom(it) },
                         onWinShown = { viewModel.playWin() },
+                        finishing = finishing,
+                        onFinish = { viewModel.finish() },
                         onSettingsChanged = { updated -> viewModel.updateSettings(updated) },
                     )
                 }

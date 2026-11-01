@@ -1,5 +1,8 @@
 package com.vortessence.mahjong.ui.components
 
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,6 +95,8 @@ fun GameToolbar(
     onRestartClick: () -> Unit,
     modifier: Modifier = Modifier,
     hintAndUndoEnabled: Boolean = true,
+    // Hints left to spend, shown on the button; null where they're free (the tutorial)
+    hints: Int? = null,
 ) {
     Box(contentAlignment = Alignment.Center, modifier = modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp)) {
         HorizontalFloatingToolbar(
@@ -102,7 +107,7 @@ fun GameToolbar(
             ),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                ToolbarActions(gameState, onHintClick, onUndoClick, onRestartClick, hintAndUndoEnabled)
+                ToolbarActions(gameState, onHintClick, onUndoClick, onRestartClick, hintAndUndoEnabled, hints = hints)
             }
         }
     }
@@ -123,6 +128,7 @@ fun GameRail(
     onRestartClick: () -> Unit,
     modifier: Modifier = Modifier,
     hintAndUndoEnabled: Boolean = true,
+    hints: Int? = null,
 ) {
     Column(
         modifier = modifier
@@ -164,7 +170,7 @@ fun GameRail(
                 .width(toolbarWidth)
                 .padding(TOOLBAR_PADDING),
         ) {
-            ToolbarActions(gameState, onHintClick, onUndoClick, onRestartClick, hintAndUndoEnabled, narrow = true)
+            ToolbarActions(gameState, onHintClick, onUndoClick, onRestartClick, hintAndUndoEnabled, narrow = true, hints = hints)
         }
         Spacer(Modifier.height(16.dp))
     }
@@ -184,11 +190,16 @@ private fun ToolbarActions(
     onRestartClick: () -> Unit,
     hintAndUndoEnabled: Boolean,
     narrow: Boolean = false,
+    hints: Int? = null,
 ) {
     // Stuck, Hint brings back the "no moves" dialog
     val canHint = hintAndUndoEnabled && (gameState.availablePairsCount > 0 || gameState.isStalemate)
     val canUndo = hintAndUndoEnabled && gameState.moveHistory.isNotEmpty()
-    ToolbarAction(Icons.Rounded.Lightbulb, "Hint", enabled = canHint, onClick = onHintClick, narrow = narrow, tint = MaterialTheme.colorScheme.secondary)
+    // With none left it's greyed, but still answers a tap (with how to earn one)
+    ToolbarAction(
+        Icons.Rounded.Lightbulb, "Hint", enabled = canHint, onClick = onHintClick, narrow = narrow,
+        tint = MaterialTheme.colorScheme.secondary, dimmed = hints == 0, count = hints,
+    )
     ToolbarAction(Icons.AutoMirrored.Rounded.Undo, "Undo", enabled = canUndo, onClick = onUndoClick, narrow = narrow)
     ToolbarAction(Icons.Rounded.RestartAlt, "Restart", enabled = true, onClick = onRestartClick, narrow = narrow)
 }
@@ -207,9 +218,13 @@ private fun ToolbarAction(
     // In the rail's narrow toolbar: as wide as the toolbar, the label close to the edges
     narrow: Boolean = false,
     tint: Color = Color.Unspecified,
+    // Greyed though it can still be tapped
+    dimmed: Boolean = false,
+    // A small count on the icon's corner, Android style
+    count: Int? = null,
 ) {
     val content = MaterialTheme.colorScheme.onSurface
-    val alpha = if (enabled) 1f else 0.38f
+    val alpha = if (enabled && !dimmed) 1f else 0.38f
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -223,12 +238,17 @@ private fun ToolbarAction(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(horizontal = if (narrow) 0.dp else 12.dp),
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = (if (tint == Color.Unspecified) content else tint).copy(alpha = alpha),
-                modifier = Modifier.size(if (narrow) 22.dp else 24.dp),
-            )
+            Box {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = (if (tint == Color.Unspecified) content else tint).copy(alpha = alpha),
+                    modifier = Modifier.size(if (narrow) 22.dp else 24.dp),
+                )
+                if (count != null) {
+                    CountBadge(count, Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = 0.dp).alpha(if (enabled) 1f else 0.38f))
+                }
+            }
             Spacer(Modifier.height(if (narrow) 3.dp else 4.dp))
             // Narrow, a size smaller, so "Restart" sits clear of the rounded ends
             Text(
@@ -239,5 +259,24 @@ private fun ToolbarAction(
                 softWrap = false,
             )
         }
+    }
+}
+
+// The hints left, in a small jade disc (grey once there are none)
+@Composable
+private fun CountBadge(count: Int, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(12.dp)
+            .background(if (count > 0) colors.primary else colors.surfaceContainerHighest, CircleShape),
+    ) {
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, lineHeight = 8.5.sp),
+            color = if (count > 0) colors.onPrimary else colors.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Texture
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Fireplace
@@ -37,6 +38,7 @@ import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -145,6 +147,12 @@ fun SettingsScreen(
             SegmentedGroup(
                 listOf<@Composable (ListItemShapes) -> Unit>(
                     { shapes ->
+                        ToggleRow(
+                            shapes, Icons.Rounded.Speed, "Low-performance mode", "Turns off firelight and fireworks, for slower phones",
+                            settings.lowPerformance,
+                        ) { onSettingsChanged(settings.copy(lowPerformance = it)) }
+                    },
+                    { shapes ->
                         ChoiceRow(
                             shapes, Icons.Rounded.Texture, "Table surface", null,
                             TableSurface.entries, { it.shortName }, settings.tableSurface,
@@ -158,12 +166,16 @@ fun SettingsScreen(
                     { shapes ->
                         ToggleRow(
                             shapes, Icons.Rounded.Fireplace, "Fireplace",
-                            if (settings.animationsEnabled) "Firelight from a hearth beside the table. More GPU-intensive"
-                            else "Out while the phone's Remove animations is on",
+                            when {
+                                settings.animationsEnabled -> "Firelight from a hearth beside the table. More GPU-intensive"
+                                settings.lowPerformance -> "Not available in low-performance mode"
+                                else -> "Out while the phone's Remove animations is on"
+                            },
                             settings.fireplaceLit,
+                            enabled = !settings.lowPerformance,
                         ) { onSettingsChanged(settings.copy(fireplaceLit = it)) }
                     },
-                ) + if (settings.fireplaceLit) {
+                ) + if (settings.fireplaceLit && !settings.lowPerformance) {
                     listOf<@Composable (ListItemShapes) -> Unit>(
                         { shapes ->
                             SliderRow(shapes, "Fire intensity", settings.fireIntensity, onSettingsCommit) {
@@ -180,6 +192,8 @@ fun SettingsScreen(
                         SliderRow(
                             shapes, "Fire sound", settings.fireVolume,
                             onValueChangeFinished = { onSettingsCommit(); onFireAudition(false) },
+                            // Silent everywhere in low-performance mode
+                            enabled = !settings.lowPerformance,
                         ) {
                             onFireAudition(true)
                             onSettingsPreview(settings.copy(fireVolume = it))
@@ -315,16 +329,19 @@ private fun ToggleRow(
     title: String,
     summary: String?,
     checked: Boolean,
+    // Greyed out, and can't be changed (a setting another one overrides)
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SegmentedListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        enabled = enabled,
         // Keep the segment's corners when switched on
         shapes = shapes.copy(selectedShape = shapes.shape),
         colors = segmentColors(),
-        leadingContent = { LeadingIcon(icon) },
-        trailingContent = { CheckSwitch(checked = checked, onCheckedChange = null) },
+        leadingContent = { LeadingIcon(icon, enabled) },
+        trailingContent = { CheckSwitch(checked = checked, onCheckedChange = null, enabled = enabled) },
         supportingContent = summary?.let { { Text(it) } },
     ) {
         Text(title)
@@ -337,8 +354,12 @@ private fun SliderRow(
     title: String,
     value: Float,
     onValueChangeFinished: () -> Unit,
+    // Greyed out, and can't be moved (a setting another one overrides)
+    enabled: Boolean = true,
     onValueChange: (Float) -> Unit,
 ) {
+    // Greyed as Material greys a disabled row: its words at 38%
+    val fade = if (enabled) Modifier else Modifier.alpha(0.38f)
     SegmentedListItem(
         shapes = shapes,
         colors = segmentColors(),
@@ -349,6 +370,7 @@ private fun SliderRow(
                 "${(value * 100).toInt()}%",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = fade,
             )
         },
         supportingContent = {
@@ -356,6 +378,7 @@ private fun SliderRow(
                 value = value,
                 onValueChange = onValueChange,
                 onValueChangeFinished = onValueChangeFinished,
+                enabled = enabled,
                 colors = SliderDefaults.colors(
                     inactiveTrackColor = panel(MaterialTheme.colorScheme.surfaceContainerHighest, atLeast = 0.5f),
                     inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -363,7 +386,7 @@ private fun SliderRow(
             )
         },
     ) {
-        Text(title)
+        Text(title, modifier = fade)
     }
 }
 

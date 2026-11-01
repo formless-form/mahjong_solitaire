@@ -1,5 +1,20 @@
 package com.vortessence.mahjong.ui.screens
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.padding
+import com.vortessence.mahjong.ui.components.BigButton
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.Icons
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.ui.Alignment
@@ -59,6 +74,12 @@ fun GameScreen(
     todaysPuzzle: Boolean = false,
     tutorialStep: TutorialStep? = null,
     winMessage: String? = null,
+    firstRibbon: Boolean = false,
+    // Hints left to spend; null where they're free (the tutorial)
+    hints: Int? = null,
+    // A Quick Game: the win card offers another of the same difficulty
+    quickGame: Boolean = false,
+    onAnotherQuickGame: () -> Unit = {},
     totalLevels: Int = ConstellationRepository.totalLevels,
     onBack: () -> Unit,
     onTileClick: (Int) -> Unit,
@@ -74,6 +95,9 @@ fun GameScreen(
     onSettingsChanged: (GameSettings) -> Unit = {},
     onBoardZoom: (Boolean) -> Unit = {},
     onWinShown: () -> Unit = {},
+    // Every tile left is free: offered as a button, the board then clears itself
+    finishing: Boolean = false,
+    onFinish: () -> Unit = {},
 ) {
     if (gameState == null) {
         LoadingPage(Modifier.background(MaterialTheme.colorScheme.background))
@@ -105,8 +129,8 @@ fun GameScreen(
         if (!gameState.isWon) {
             celebrating = false
         } else if (!celebrating) {
-            // Without animations there's no smash to wait for
-            if (settings.animationsEnabled) delay(WIN_REVEAL)
+            // Without the smash there's nothing to wait for
+            if (settings.matchSmash) delay(WIN_REVEAL)
             celebrating = true
             onWinShown()
         }
@@ -119,7 +143,15 @@ fun GameScreen(
         if (ConstellationRepository.TUTORIAL_ID == gameState.constellation.id || todaysPuzzle) onRestart() else askRestart = true
     }
     var stalemateClosed by remember(gameState.tiles) { mutableStateOf(false) }
-    val hint = { if (gameState.isStalemate) stalemateClosed = false else onHint() }
+    // Out of hints, a tap says how to earn one
+    var noHintsNote by remember { mutableStateOf(0) }
+    val hint: () -> Unit = {
+        when {
+            gameState.isStalemate -> stalemateClosed = false
+            hints == 0 -> noHintsNote += 1
+            else -> onHint()
+        }
+    }
 
     // A wide board is held on its side if the player chose so; the first one asks. On its side the
     // header and toolbar become a rail beside the board (the tutorial, never wide, keeps its card)
@@ -151,16 +183,25 @@ fun GameScreen(
                 onUndoClick = onUndo,
                 onRestartClick = restart,
                 hintAndUndoEnabled = !gameState.isWon,
+                hints = hints,
             )
-            MahjongBoard(
-                gameState = gameState,
-                settings = settings,
-                highlightedTileIds = tutorialHighlights,
-                onZoomedInChange = { boardZoomedIn = it },
-                onTileClick = onTileClick,
-                onTileMatch = onTileMatch,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            )
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                MahjongBoard(
+                    gameState = gameState,
+                    settings = settings,
+                    highlightedTileIds = tutorialHighlights,
+                    onZoomedInChange = { boardZoomedIn = it },
+                    onTileClick = onTileClick,
+                    onTileMatch = onTileMatch,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                FinishButton(
+                    visible = gameState.canFinish && !finishing && tutorialStep == null,
+                    onClick = onFinish,
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 20.dp),
+                )
+                NoHintsNote(noHintsNote, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 20.dp))
+            }
         }
     } else Column(
         modifier = Modifier
@@ -200,6 +241,18 @@ fun GameScreen(
                 bottomOverlap = with(density) { boardOverlay.toDp() },
                 modifier = Modifier.fillMaxSize()
             )
+            // Just above the toolbar, without taking room from the board
+            FinishButton(
+                visible = gameState.canFinish && !finishing && tutorialStep == null,
+                onClick = onFinish,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = with(density) { overlay.toDp() } + 14.dp),
+            )
+            NoHintsNote(
+                noHintsNote,
+                Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { overlay.toDp() } + 14.dp),
+            )
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -221,6 +274,7 @@ fun GameScreen(
                         onRestartClick = restart,
                         // Nothing to hint or undo once the board is cleared
                         hintAndUndoEnabled = !gameState.isWon,
+                        hints = hints,
                     )
                 }
             }
@@ -233,9 +287,13 @@ fun GameScreen(
             message = winMessage,
             subtitle = listOfNotNull(place, gameState.constellation.name).distinct().joinToString(" · "),
             hasNextLevel = hasNextLevel,
-            animationsEnabled = settings.animationsEnabled,
+            // Low-performance mode keeps a lighter show; the phone's Remove animations, none
+            animationsEnabled = settings.matchSmash,
+            liteFireworks = !settings.animationsEnabled,
+            firstRibbon = firstRibbon,
             onNextLevel = onNextLevel,
-            onPlayAgain = onRestart,
+            onPlayAgain = if (quickGame) onAnotherQuickGame else onRestart,
+            quickGame = quickGame,
             onMainMenu = onMainMenu,
             menuLabel = if (todaysPuzzle) "Calendar" else "Menu",
         )
@@ -282,3 +340,44 @@ private val WIN_REVEAL = 600.milliseconds
 
 // How long the tutorial card's size has to hold before the board refits to it
 private val OVERLAY_SETTLE = 120.milliseconds
+
+// Offered at a board's end (a few pairs left on the lowest layer): the rest clears itself
+@Composable
+private fun FinishButton(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + scaleIn(initialScale = 0.9f),
+        exit = fadeOut(),
+        modifier = modifier,
+    ) {
+        BigButton(text = "Finish", onClick = onClick, primary = true, icon = Icons.Rounded.DoneAll)
+    }
+}
+
+// Tapping Hint with none left: a short note, for a few seconds, of how to earn one. [tapped]
+// counts the taps, so each shows it afresh
+@Composable
+private fun NoHintsNote(tapped: Int, modifier: Modifier = Modifier) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(tapped) {
+        if (tapped == 0) return@LaunchedEffect
+        visible = true
+        delay(NO_HINTS_NOTE)
+        visible = false
+    }
+    AnimatedVisibility(visible = visible, enter = fadeIn() + scaleIn(initialScale = 0.95f), exit = fadeOut(), modifier = modifier) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+                Icon(Icons.Rounded.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Clear a level cleanly to earn a hint", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
+
+private val NO_HINTS_NOTE = 2800.milliseconds

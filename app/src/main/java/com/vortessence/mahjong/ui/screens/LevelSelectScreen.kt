@@ -77,7 +77,12 @@ fun LevelSelectScreen(
                     shapes = ListItemDefaults.segmentedShapes(index = index, count = rows.size),
                     colors = segmentColors(),
                     leadingContent = {
-                        LevelBadge(state, label = levelIndex.toString(), icon = if (isTutorial) Icons.Rounded.School else null)
+                        LevelBadge(
+                            state,
+                            label = levelIndex.toString(),
+                            icon = if (isTutorial) Icons.Rounded.School else null,
+                            ribbon = constellation.id in progress.cleanConstellations,
+                        )
                     },
                     overlineContent = {
                         Text(

@@ -173,23 +173,26 @@ fun segmentColors(): ListItemColors = ListItemDefaults.segmentedColors(
 
 /** A list item's leading icon, in a soft circle. */
 @Composable
-fun LeadingIcon(icon: ImageVector) {
+fun LeadingIcon(icon: ImageVector, enabled: Boolean = true) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(40.dp)
             .background(panel(MaterialTheme.colorScheme.surfaceContainerHighest, atLeast = 0.35f), CircleShape),
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        // Greyed as Material greys a disabled row's text: the same colour at 38%
+        val tint = MaterialTheme.colorScheme.primary.let { if (enabled) it else it.copy(alpha = 0.38f) }
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 
 /** A switch whose thumb shows a tick when on. */
 @Composable
-fun CheckSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
+fun CheckSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true) {
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        enabled = enabled,
         thumbContent = if (checked) {
             { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
         } else {

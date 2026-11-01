@@ -19,7 +19,7 @@ enum class WideBoards(val shortName: String) {
 
 data class GameSettings(
     val soundEnabled: Boolean = true,
-    val soundVolume: Float = 0.7f,
+    val soundVolume: Float = 0.65f,
     val musicEnabled: Boolean = true,
     val musicVolume: Float = 0.6f,
     val autoZoomEnabled: Boolean = true,
@@ -32,9 +32,18 @@ data class GameSettings(
     // The lamp over the table is always lit; how brightly, 0..1, the middle its natural strength
     val lampBrightness: Float = 0.5f,
     // A fire in a hearth beside the table, lit or not, and how brightly it burns (as the lamp)
-    val fireplaceLit: Boolean = false,
+    val fireplaceLit: Boolean = true,
     val fireIntensity: Float = 0.6f,
     // The fire's crackle, on its own volume (subtle by default)
     val fireVolume: Float = 0.4f,
     val wideBoards: WideBoards = WideBoards.ASK,
-)
+    // For slower phones: the fire, fireworks and other moving effects off (as with the phone's
+    // Remove animations); the lamp and the tiles' look stay
+    val lowPerformance: Boolean = false,
+    // The phone's own Remove animations, as read (never saved): low-performance mode keeps the
+    // match smash, with a lighter sparkle, unless the phone wants no motion at all
+    val phoneAnimates: Boolean = true,
+) {
+    /** A match lifts the pair and smashes them together (with or without the full sparkle). */
+    val matchSmash: Boolean get() = animationsEnabled || (lowPerformance && phoneAnimates)
+}

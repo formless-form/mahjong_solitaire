@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vortessence.mahjong.audio.AudioManager
+import com.vortessence.mahjong.data.model.Difficulty
 import com.vortessence.mahjong.data.model.Constellation
 import com.vortessence.mahjong.data.model.ContinueInfo
 import com.vortessence.mahjong.data.model.GameSettings
@@ -89,6 +90,10 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
     private val _winMessage = MutableStateFlow<String?>(null)
     val winMessage: StateFlow<String?> = _winMessage.asStateFlow()
 
+    // This win was the player's first clean clear: its card introduces the gold ribbon
+    private val _firstRibbon = MutableStateFlow(false)
+    val firstRibbon: StateFlow<Boolean> = _firstRibbon.asStateFlow()
+
     private val _progress = MutableStateFlow(Progress())
     val progress: StateFlow<Progress> = _progress.asStateFlow()
 
@@ -144,6 +149,8 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
     init {
         // Levels were reordered by measured difficulty: carry the highest level over, once
         viewModelScope.launch { prefsRepo.migrateLevelOrder() }
+        // Hints became earned: players from before start with 2
+        viewModelScope.launch { prefsRepo.migrateHints() }
         // Collect settings. While the player's own changes are still being written, what's read
         // back is older than what they see, so it waits until the writes are done
         viewModelScope.launch {
@@ -247,11 +254,13 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
             saved != null && saved.puzzleDay == today && saved.tiles.any { !it.isRemoved } -> {
                 _gameState.value = saved.toGameState()
                 _winMessage.value = null
+        _firstRibbon.value = false
                 _tutorialStepIndex.value = null
             }
             else -> {
                 _gameState.value = TodaysPuzzle.dealOn(today)
                 _winMessage.value = null
+        _firstRibbon.value = false
                 _tutorialStepIndex.value = null
             }
         }
@@ -259,6 +268,32 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
         _puzzleDay.value = today
         saveCurrentGame()
         _currentScreen.value = Screen.Game
+    }
+
+    // The last Quick Game's layout, so the next one is different
+    private var lastQuickGame: String? = null
+
+    // Playing a Quick Game: its win card offers another, of the same difficulty
+    private val _quickGame = MutableStateFlow(false)
+    val quickGame: StateFlow<Boolean> = _quickGame.asStateFlow()
+
+    /** Quick Game: a random layout of [difficulty] (any, if null), never the one just played. */
+    fun startQuickGame(difficulty: Difficulty?) {
+        val pool = ConstellationRepository.constellations
+            .filter { it.id != ConstellationRepository.tutorialConstellation.id }
+            .filter { difficulty == null || it.difficulty == difficulty }
+        val choice = (pool.filter { it.id != lastQuickGame }.ifEmpty { pool }).randomOrNull() ?: return
+        lastQuickGame = choice.id
+        _gameOrigin.value = Screen.MainMenu
+        _currentLevelIndex.value = null
+        initGame(choice)
+        _quickGame.value = true
+        _currentScreen.value = Screen.Game
+    }
+
+    /** From a Quick Game's win card: another random layout as hard as the one just cleared. */
+    fun anotherQuickGame() {
+        startQuickGame(_gameState.value?.constellation?.difficulty)
     }
 
     fun startConstellation(constellation: Constellation) {
@@ -304,7 +339,9 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
         perfAutoplay?.cancel()
         val state = MahjongGameEngine.startNewGame(constellation, random)
         _puzzleDay.value = null
+        _quickGame.value = false
         _winMessage.value = null
+        _firstRibbon.value = false
         _gameState.value = state
         _tutorialStepIndex.value = if (TutorialScript.isTutorial(state)) 0 else null
         saveCurrentGame()
@@ -328,7 +365,41 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // Finishing a board whose tiles are all free: the pairs are taken one by one, as taps would
+    private val _finishing = MutableStateFlow(false)
+    val finishing: StateFlow<Boolean> = _finishing.asStateFlow()
+    private var finishJob: Job? = null
+
+    fun finish() {
+        val start = _gameState.value ?: return
+        if (!start.canFinish || currentTutorialStep != null || finishJob?.isActive == true) return
+        _finishing.value = true
+        val plan = start.finishPlan ?: return
+        finishJob = viewModelScope.launch {
+            try {
+                for (pair in plan) {
+                    val state = _gameState.value ?: break
+                    if (state.isWon || _currentScreen.value != Screen.Game) break
+                    // A tile the player had picked is put down first
+                    if (state.selectedTileId != null && state.selectedTileId != pair.first) tap(state.selectedTileId)
+                    tap(pair.first)
+                    delay(FINISH_PICK)
+                    tap(pair.second)
+                    delay(FINISH_STEP)
+                }
+            } finally {
+                _finishing.value = false
+            }
+        }
+    }
+
     fun onTileTapped(tileId: Int) {
+        // The player's taps wait while the board finishes itself
+        if (_finishing.value) return
+        tap(tileId)
+    }
+
+    private fun tap(tileId: Int) {
         val current = _gameState.value ?: return
         if (current.isWon) return
 
@@ -365,7 +436,8 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
             }
             is TileTapResult.Matched -> {
                 audioManager.playTileSelect()
-                if (!_settings.value.animationsEnabled) {
+                // Without the smash there's no moment of contact to play it at
+                if (!_settings.value.matchSmash) {
                     audioManager.playTileMatch()
                 }
                 if (result.isWon) {
@@ -374,9 +446,11 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
                     val day = _puzzleDay.value
                     viewModelScope.launch {
                         if (day != null) prefsRepo.recordPuzzleSolved(day)
-                        prefsRepo.recordGameWon(
+                        _firstRibbon.value = prefsRepo.recordGameWon(
                             constellationId = current.constellation.id,
                             levelIndex = levelIndex,
+                            clean = !newState.usedHelp && !TutorialScript.isTutorial(current),
+                            puzzleDay = day,
                         )
                         _winMessage.value = prefsRepo.nextCongratsMessage(
                             isTutorial = TutorialScript.isTutorial(current),
@@ -442,15 +516,20 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
         if (_tutorialStepIndex.value != null) return
         val current = _gameState.value ?: return
         if (current.isWon) return
+        // The pair already shown is shown again, free; a new one costs a hint (the screen
+        // doesn't ask with none left)
+        if (current.hintPair != null) return
+        if (_progress.value.hints <= 0) return
         audioManager.playTileSelect()
         // Finding a plan can take a moment on a big board, so it's done in the background, and
         // shown only if the board hasn't changed meanwhile
         hintSearch?.cancel()
         hintSearch = viewModelScope.launch {
             val hint = withContext(Dispatchers.Default) { MahjongGameEngine.findHint(current) } ?: return@launch
+            if (_gameState.value?.tiles !== current.tiles || !prefsRepo.spendHint()) return@launch
             _gameState.update { state ->
                 if (state?.tiles === current.tiles) {
-                    state.copy(hintPair = hint.pair, plan = hint.plan.ifEmpty { state.plan }, blockedTileId = null)
+                    state.copy(hintPair = hint.pair, plan = hint.plan.ifEmpty { state.plan }, blockedTileId = null, usedHelp = true)
                 } else {
                     state
                 }
@@ -470,6 +549,7 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
         hintSearch?.cancel()
         perfAutoplay?.cancel()
         _winMessage.value = null
+        _firstRibbon.value = false
         val state = MahjongGameEngine.replay(current)
         _gameState.value = state
         _tutorialStepIndex.value = if (TutorialScript.isTutorial(state)) 0 else null
@@ -478,7 +558,7 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
 
     fun reshuffle() {
         val current = _gameState.value ?: return
-        val updated = MahjongGameEngine.reshuffleRemaining(current)
+        val updated = MahjongGameEngine.reshuffleRemaining(current).copy(usedHelp = true)
         _gameState.value = updated
         saveCurrentGame()
         audioManager.playTileSelect()
@@ -497,7 +577,8 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
     private var settingsWrites = 0
 
     private fun showSettings(s: GameSettings) {
-        val shown = s.copy(animationsEnabled = phoneAnimates)
+        // Low-performance mode stills everything the phone's Remove animations does
+        val shown = s.copy(animationsEnabled = phoneAnimates && !s.lowPerformance, phoneAnimates = phoneAnimates)
         _settings.value = shown
         audioManager.updateSettings(shown)
     }
@@ -550,3 +631,8 @@ class MahjongViewModel(application: Application) : AndroidViewModel(application)
 
 /** What Today's Puzzle is called wherever it's named. */
 const val TODAYS_PUZZLE = "Today's Puzzle"
+
+// Auto-finish: the pause between a pair's two picks, and between pairs (long enough for each
+// match's animation to be seen)
+private val FINISH_PICK = 140.milliseconds
+private val FINISH_STEP = 420.milliseconds

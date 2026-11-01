@@ -9,4 +9,10 @@ data class Progress(
     val highestLevelReached: Int = 1,
     val completedConstellations: Set<String> = emptySet(),
     val puzzleDaysSolved: Set<Long> = emptySet(),
+    // Layouts cleared cleanly (no hints, no reshuffles) since that was first kept: the gold ribbon
+    val cleanConstellations: Set<String> = emptySet(),
+    // Hints to spend: one earned for each first clean clear, at most MAX_HINTS
+    val hints: Int = 0,
 )
+
+const val MAX_HINTS = 6

@@ -1,5 +1,7 @@
 package com.vortessence.mahjong.ui.components
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
@@ -48,6 +50,12 @@ fun WinCelebration(
     onMainMenu: () -> Unit,
     // Where the last button goes: the title, or for Today's Puzzle its calendar
     menuLabel: String = "Menu",
+    // Low-performance mode: a smaller show
+    liteFireworks: Boolean = false,
+    // The player's first clean clear: the card introduces the gold ribbon
+    firstRibbon: Boolean = false,
+    // A Quick Game: its button deals another, rather than playing this one again
+    quickGame: Boolean = false,
 ) {
     var showCard by remember { mutableStateOf(!animationsEnabled) }
     LaunchedEffect(Unit) {
@@ -66,7 +74,7 @@ fun WinCelebration(
             .pointerInput(Unit) {},
     ) {
         if (animationsEnabled) {
-            FireworksShow(modifier = Modifier.fillMaxSize())
+            FireworksShow(modifier = Modifier.fillMaxSize(), lite = liteFireworks)
         }
 
         AnimatedVisibility(
@@ -86,6 +94,10 @@ fun WinCelebration(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 32.dp),
                 ) {
+                    if (firstRibbon) {
+                        GoldRibbon(Modifier.size(width = 46.dp, height = 60.dp))
+                        Spacer(Modifier.height(16.dp))
+                    }
                     Text(
                         text = message ?: " ",
                         style = MaterialTheme.typography.headlineMedium,
@@ -95,10 +107,20 @@ fun WinCelebration(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
+                        // The level's name, 4 sp up from body text so it reads clearly under the message
+                        style = MaterialTheme.typography.bodyMedium.let { it.copy(fontSize = (it.fontSize.value + 4f).sp) },
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (firstRibbon) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Your first gold ribbon: cleared without hints or reshuffles. Each level you clean earns its ribbon and a hint.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = RibbonText,
+                        )
+                    }
                     Spacer(Modifier.height(28.dp))
                     // The buttons share the card's width, so they fit on a small phone too
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -106,7 +128,7 @@ fun WinCelebration(
                             BigButton("Next", onClick = onNextLevel, primary = true, compact = true, modifier = Modifier.weight(1f))
                             BigButton("Replay", onClick = onPlayAgain, compact = true, modifier = Modifier.weight(1f))
                         } else {
-                            BigButton("Play again", onClick = onPlayAgain, primary = true, compact = true, modifier = Modifier.weight(1.4f))
+                            BigButton(if (quickGame) "Another?" else "Play again", onClick = onPlayAgain, primary = true, compact = true, modifier = Modifier.weight(1.4f))
                         }
                         BigButton(menuLabel, onClick = onMainMenu, compact = true, modifier = Modifier.weight(1f))
                     }
@@ -115,3 +137,6 @@ fun WinCelebration(
         }
     }
 }
+
+// The first ribbon's line, in the ribbon's own pale gold
+private val RibbonText = Color(0xFFF2D58C)

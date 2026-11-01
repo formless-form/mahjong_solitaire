@@ -30,6 +30,7 @@ data class SavedGameState(
     val dealtPlan: List<Move> = emptyList(),
     // Today's Puzzle's day (an epoch day) for that puzzle, null for any other board
     val puzzleDay: Long? = null,
+    val usedHelp: Boolean = false,
 ) {
     // deserialize only accepts saves on a layout that exists
     fun toGameState(): GameState {
@@ -44,7 +45,7 @@ data class SavedGameState(
             )
         }
         return MahjongGameEngine.stateOf(constellation, boardTiles, moveHistory, plan)
-            .copy(dealt = dealt.takeIf { it.size == boardTiles.size } ?: emptyList(), dealtPlan = dealtPlan)
+            .copy(dealt = dealt.takeIf { it.size == boardTiles.size } ?: emptyList(), dealtPlan = dealtPlan, usedHelp = usedHelp)
     }
 
     fun serialize(): String {
@@ -68,6 +69,7 @@ data class SavedGameState(
             dealt.joinToString(";") { "${it.suit.name},${it.value}" },
             movesOf(dealtPlan),
             puzzleDay?.toString() ?: "",
+            if (usedHelp) "1" else "",
         ).joinToString("|")
     }
 
@@ -93,6 +95,7 @@ data class SavedGameState(
                 dealt = state.dealt,
                 dealtPlan = state.dealtPlan,
                 puzzleDay = puzzleDay,
+                usedHelp = state.usedHelp,
             )
         }
 
@@ -161,6 +164,8 @@ data class SavedGameState(
                     },
                     dealtPlan = moves(parts.getOrNull(9)),
                     puzzleDay = parts.getOrNull(10)?.toLongOrNull(),
+                    // Saves from before this was kept count as clean so far
+                    usedHelp = parts.getOrNull(11) == "1",
                 )
             } catch (_: Exception) {
                 return null

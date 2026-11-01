@@ -1,0 +1,6 @@
+New in 1.4.6:
+• Earn hints and gold ribbons by clearing levels cleanly
+• Quick Game: a random layout at the difficulty you choose
+• Low-performance mode for slower phones
+• Finish button to clear the last few pairs
+• Humorous win messages, and other refinements
