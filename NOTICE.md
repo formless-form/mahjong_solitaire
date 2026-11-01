@@ -107,6 +107,7 @@ Dark Mahjong is made to be free of ads and tracking, with nothing to buy, offlin
 * **Original:** [Sanqing Mountain is surrounded by clouds and mists](https://commons.wikimedia.org/wiki/File:Sanqing_Mountain_is_surrounded_by_clouds_and_mists1.jpg) by **Huangdan2060**, via Wikimedia Commons
 * **License:** [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain dedication)
 * **Changes:** cropped to a tall portrait frame without distortion, darkened and colour-graded. No attribution is required, so none is shown in the app.
+* **Original:** kept at full resolution in `tools/sources/title-sanqing-mountain-commons.jpg`; `tools/make-title-photo.py` rebuilds the title image from it, or crops new frames with the same grade
 
 ### Thai straw mat
 
