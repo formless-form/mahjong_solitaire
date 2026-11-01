@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,9 +37,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.vortessence.mahjong.data.model.Progress
 import com.vortessence.mahjong.engine.TodaysPuzzle
@@ -76,70 +81,89 @@ fun TodaysPuzzleScreen(
     var month by rememberSaveable(today) { mutableStateOf(thisMonth) }
 
     ExpressiveScreen(title = TODAYS_PUZZLE, onBack = onBack, backdrop = { MenuBackdrop(fireIntensity, fire) }) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp)
-                .padding(horizontal = 16.dp),
-        ) {
-            Calendar(
-                month = month,
-                today = todayDate,
-                solved = progress.puzzleDaysSolved,
-                canGoBack = month > firstMonth,
-                canGoForward = month < thisMonth,
-                onMonth = { month = it },
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "${todayDate.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())}'s puzzle · ${layout.difficulty.displayName}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            Text(
-                "${layout.name} · ${layout.tileCount} tiles",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            Spacer(Modifier.weight(1f))
-            if (solvedToday) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                ) {
-                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Solved today", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        // Near phone-width on a tablet or open foldable, so the calendar's square days leave room for the
+        // button: a little wider where the screen is tall enough, as on an upright tablet
+        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            val width = minOf(maxWidth, (maxHeight * HEIGHT_TO_WIDTH).coerceIn(MIN_MAX_WIDTH, MAX_WIDTH))
+            // The calendar zoomed to fill that width, its days and numbers growing with it
+            val zoom = ((width - 32.dp) / PHONE_CALENDAR).coerceAtLeast(1f)
+            val density = LocalDensity.current
+            Column(
+                modifier = Modifier
+                    .width(width)
+                    .fillMaxHeight()
+                    .padding(top = padding.calculateTopPadding() + 8.dp + ZOOM_GAP * (zoom - 1f), bottom = padding.calculateBottomPadding() + 24.dp)
+                    .padding(horizontal = 16.dp),
+            ) {
+                CompositionLocalProvider(LocalDensity provides Density(density.density * zoom, density.fontScale)) {
+                    Calendar(
+                        month = month,
+                        today = todayDate,
+                        solved = progress.puzzleDaysSolved,
+                        canGoBack = month > firstMonth,
+                        canGoForward = month < thisMonth,
+                        onMonth = { month = it },
+                    )
                 }
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    "${todayDate.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())}'s puzzle · ${layout.difficulty.displayName}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                Text(
+                    "${layout.name} · ${layout.tileCount} tiles",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                if (solvedToday) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    ) {
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Solved today", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                BigButton(
+                    text = when {
+                        inProgress -> "Continue today's puzzle"
+                        solvedToday -> "Play it again"
+                        else -> "Play today's puzzle"
+                    },
+                    onClick = onPlay,
+                    primary = !solvedToday || inProgress,
+                    icon = Icons.Rounded.PlayArrow,
+                    // As wide as its words, centred
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "The same puzzle for everyone today. A new one at 4 am.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // The button and its line halfway down the space below the puzzle's details
+                Spacer(Modifier.weight(1f))
             }
-            BigButton(
-                text = when {
-                    inProgress -> "Continue today's puzzle"
-                    solvedToday -> "Play it again"
-                    else -> "Play today's puzzle"
-                },
-                onClick = onPlay,
-                primary = !solvedToday || inProgress,
-                icon = Icons.Rounded.PlayArrow,
-                // As wide as its words, centred
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "The same puzzle for everyone today. A new one at 4 am.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // The button and its line halfway down the space below the puzzle's details
-            Spacer(Modifier.weight(1f))
         }
     }
 }
+
+private val MIN_MAX_WIDTH = 480.dp
+private val MAX_WIDTH = 620.dp
+private const val HEIGHT_TO_WIDTH = 0.47f
+// The calendar's width on a typical phone
+private val PHONE_CALENDAR = 395.dp
+// Extra room under the title as the calendar zooms
+private val ZOOM_GAP = 48.dp
 
 // A month, Monday first: solved days ticked, today ringed in gold, the rest plain numbers
 @Composable

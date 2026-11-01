@@ -368,7 +368,17 @@ class ScreenshotTour {
 
     // Today's Puzzle on Saturday 31 October 2026, most of the month's puzzles solved
     @Test
-    fun todaysPuzzle() {
+    fun todaysPuzzle() = todaysPuzzleShot("todays_puzzle")
+
+    // The same on an open foldable, a near-square screen
+    @Test @Config(qualifiers = "w851dp-h882dp-port-360dpi")
+    fun todaysPuzzleFoldable() = todaysPuzzleShot("todays_puzzle_foldable")
+
+    // And on a tablet held upright
+    @Test @Config(qualifiers = "w800dp-h1280dp-port-240dpi")
+    fun todaysPuzzleTablet() = todaysPuzzleShot("todays_puzzle_tablet")
+
+    private fun todaysPuzzleShot(name: String) {
         val today = java.time.LocalDate.of(2026, 10, 31).toEpochDay()
         val solved = (1L..30L).filter { it % 7 != 3L && it % 11 != 0L }.map { today - 31 + it }.toSet()
         compose.setContent {
@@ -379,7 +389,7 @@ class ScreenshotTour {
                 )
             }
         }
-        shoot("todays_puzzle")
+        shoot(name)
     }
 
     @Test
