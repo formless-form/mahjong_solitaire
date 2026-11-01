@@ -1,0 +1,4 @@
+New in 1.4.5:
+• Today's Puzzle fits tablets and foldables
+• Fixed audio focus issues
+• Stability improvements
